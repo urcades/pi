@@ -15,9 +15,11 @@ bash ./scripts/pi-test.sh  # Run pi coding agent from source (must run from repo
 **Never run:** `npm run dev`, `npm run build`, `npm test` (use the commands above instead).
 
 **Running a single test** (from the package root, not repo root):
+
 ```bash
 npx tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts
 ```
+
 Exception: `pi-tui` uses Node's built-in test runner: `node --test --import tsx test/*.test.ts`
 
 ## Architecture
