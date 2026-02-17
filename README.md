@@ -20,9 +20,6 @@ Tools for building AI agents.
 | -------------------------------------- | ---------------------------------------------------------------- |
 | **[@mariozechner/pi-ai](packages/ai)** | Unified multi-provider LLM API (OpenAI, Anthropic, Google, etc.) |
 
-## Contributing
-
-See [AGENTS.md](AGENTS.md) for project-specific rules.
 
 ## Development
 

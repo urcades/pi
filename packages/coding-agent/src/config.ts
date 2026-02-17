@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "fs";
 import { homedir } from "os";
-import { dirname, join, resolve } from "path";
+import { dirname, join, resolve, sep } from "path";
 import { fileURLToPath } from "url";
 
 // =============================================================================
@@ -102,6 +102,33 @@ export function getPackageDir(): string {
 	return __dirname;
 }
 
+function resolvePackageAssetDir(packageDir: string, segments: string[]): string {
+	// Some local build flows copy package.json into dist/, which can make packageDir resolve to dist/.
+	// In that case, assets are already rooted at packageDir (e.g. packageDir/modes/...).
+	const directPath = join(packageDir, ...segments);
+	if (existsSync(directPath)) {
+		return directPath;
+	}
+
+	const srcPath = join(packageDir, "src", ...segments);
+	const distPath = join(packageDir, "dist", ...segments);
+
+	// Prefer assets that match the current runtime location.
+	const runningFromSrc = __dirname.split(sep).includes("src");
+	const preferredPath = runningFromSrc ? srcPath : distPath;
+	const fallbackPath = runningFromSrc ? distPath : srcPath;
+
+	if (existsSync(preferredPath)) {
+		return preferredPath;
+	}
+	if (existsSync(fallbackPath)) {
+		return fallbackPath;
+	}
+
+	// Keep previous behavior as a final fallback.
+	return preferredPath;
+}
+
 /**
  * Get path to built-in themes directory (shipped with package)
  * - For Bun binary: theme/ next to executable
@@ -112,10 +139,7 @@ export function getThemesDir(): string {
 	if (isBunBinary) {
 		return join(dirname(process.execPath), "theme");
 	}
-	// Theme is in modes/interactive/theme/ relative to src/ or dist/
-	const packageDir = getPackageDir();
-	const srcOrDist = existsSync(join(packageDir, "src")) ? "src" : "dist";
-	return join(packageDir, srcOrDist, "modes", "interactive", "theme");
+	return resolvePackageAssetDir(getPackageDir(), ["modes", "interactive", "theme"]);
 }
 
 /**
@@ -128,9 +152,7 @@ export function getExportTemplateDir(): string {
 	if (isBunBinary) {
 		return join(dirname(process.execPath), "export-html");
 	}
-	const packageDir = getPackageDir();
-	const srcOrDist = existsSync(join(packageDir, "src")) ? "src" : "dist";
-	return join(packageDir, srcOrDist, "core", "export-html");
+	return resolvePackageAssetDir(getPackageDir(), ["core", "export-html"]);
 }
 
 /** Get path to package.json */
