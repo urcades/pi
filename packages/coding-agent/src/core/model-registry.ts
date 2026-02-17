@@ -33,12 +33,6 @@ const OpenRouterRoutingSchema = Type.Object({
 	order: Type.Optional(Type.Array(Type.String())),
 });
 
-// Schema for Vercel AI Gateway routing preferences
-const VercelGatewayRoutingSchema = Type.Object({
-	only: Type.Optional(Type.Array(Type.String())),
-	order: Type.Optional(Type.Array(Type.String())),
-});
-
 // Schema for OpenAI compatibility settings
 const OpenAICompletionsCompatSchema = Type.Object({
 	supportsStore: Type.Optional(Type.Boolean()),
@@ -46,13 +40,8 @@ const OpenAICompletionsCompatSchema = Type.Object({
 	supportsReasoningEffort: Type.Optional(Type.Boolean()),
 	supportsUsageInStreaming: Type.Optional(Type.Boolean()),
 	maxTokensField: Type.Optional(Type.Union([Type.Literal("max_completion_tokens"), Type.Literal("max_tokens")])),
-	requiresToolResultName: Type.Optional(Type.Boolean()),
-	requiresAssistantAfterToolResult: Type.Optional(Type.Boolean()),
-	requiresThinkingAsText: Type.Optional(Type.Boolean()),
-	requiresMistralToolIds: Type.Optional(Type.Boolean()),
-	thinkingFormat: Type.Optional(Type.Union([Type.Literal("openai"), Type.Literal("zai"), Type.Literal("qwen")])),
 	openRouterRouting: Type.Optional(OpenRouterRoutingSchema),
-	vercelGatewayRouting: Type.Optional(VercelGatewayRoutingSchema),
+	supportsStrictMode: Type.Optional(Type.Boolean()),
 });
 
 const OpenAIResponsesCompatSchema = Type.Object({
@@ -159,13 +148,6 @@ function mergeCompat(
 		mergedCompletions.openRouterRouting = {
 			...baseCompletions?.openRouterRouting,
 			...overrideCompletions.openRouterRouting,
-		};
-	}
-
-	if (baseCompletions?.vercelGatewayRouting || overrideCompletions.vercelGatewayRouting) {
-		mergedCompletions.vercelGatewayRouting = {
-			...baseCompletions?.vercelGatewayRouting,
-			...overrideCompletions.vercelGatewayRouting,
 		};
 	}
 

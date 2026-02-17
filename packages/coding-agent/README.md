@@ -87,32 +87,15 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 **Subscriptions:**
 - Anthropic Claude Pro/Max
 - OpenAI ChatGPT Plus/Pro (Codex)
-- GitHub Copilot
-- Google Gemini CLI
-- Google Antigravity
 
 **API keys:**
 - Anthropic
 - OpenAI
-- Azure OpenAI
-- Google Gemini
-- Google Vertex
-- Amazon Bedrock
-- Mistral
-- Groq
-- Cerebras
-- xAI
 - OpenRouter
-- Vercel AI Gateway
-- ZAI
-- OpenCode Zen
-- Hugging Face
-- Kimi For Coding
-- MiniMax
 
 See [docs/providers.md](docs/providers.md) for detailed setup instructions.
 
-**Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI, Anthropic, Google). For custom APIs or OAuth, use extensions. See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md).
+**Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI-compatible or Anthropic-compatible). For custom APIs or OAuth, use extensions. See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md).
 
 ---
 
@@ -456,7 +439,7 @@ pi config                   # Enable/disable package resources
 
 | Option | Description |
 |--------|-------------|
-| `--provider <name>` | Provider (anthropic, openai, google, etc.) |
+| `--provider <name>` | Provider (anthropic, openai, openai-codex, openrouter) |
 | `--model <pattern>` | Model pattern or ID (supports `provider/id` and optional `:<thinking>`) |
 | `--api-key <key>` | API key (overrides env vars) |
 | `--thinking <level>` | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` |

@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Reduced built-in provider support to Anthropic, OpenAI, OpenAI Codex, and OpenRouter.
+
+### Changed
+
+- Updated default provider model mapping to only include `anthropic`, `openai`, `openai-codex`, and `openrouter`.
+- Updated startup defaults and CLI/help provider guidance to match the reduced provider surface.
+
+### Removed
+
+- Removed interactive-mode provider-specific paths tied to deleted providers (including the Daxnuts easter egg and GitHub Copilot-specific login polling behavior).
+
 ## [0.52.12] - 2026-02-13
 
 ### Added

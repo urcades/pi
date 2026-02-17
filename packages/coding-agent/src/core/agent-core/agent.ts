@@ -96,7 +96,7 @@ export interface AgentOptions {
 export class Agent {
 	private _state: AgentState = {
 		systemPrompt: "",
-		model: getModel("google", "gemini-2.5-flash-lite-preview-06-17"),
+		model: getModel("openai", "gpt-5.1-codex"),
 		thinkingLevel: "off",
 		tools: [],
 		messages: [],

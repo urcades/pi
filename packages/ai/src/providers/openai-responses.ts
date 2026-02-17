@@ -14,11 +14,10 @@ import type {
 	Usage,
 } from "../types.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
-import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 
-const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "opencode"]);
+const OPENAI_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "openrouter"]);
 
 /**
  * Resolve cache retention preference.
@@ -88,7 +87,7 @@ export const streamOpenAIResponses: StreamFunction<"openai-responses", OpenAIRes
 		try {
 			// Create OpenAI client
 			const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-			const client = createClient(model, context, apiKey, options?.headers);
+			const client = createClient(model, apiKey, options?.headers);
 			const params = buildParams(model, context, options);
 			options?.onPayload?.(params);
 			const openaiStream = await client.responses.create(
@@ -145,7 +144,6 @@ export const streamSimpleOpenAIResponses: StreamFunction<"openai-responses", Sim
 
 function createClient(
 	model: Model<"openai-responses">,
-	context: Context,
 	apiKey?: string,
 	optionsHeaders?: Record<string, string>,
 ) {
@@ -159,14 +157,6 @@ function createClient(
 	}
 
 	const headers = { ...model.headers };
-	if (model.provider === "github-copilot") {
-		const hasImages = hasCopilotVisionInput(context.messages);
-		const copilotHeaders = buildCopilotDynamicHeaders({
-			messages: context.messages,
-			hasImages,
-		});
-		Object.assign(headers, copilotHeaders);
-	}
 
 	// Merge options headers last so they can override defaults
 	if (optionsHeaders) {

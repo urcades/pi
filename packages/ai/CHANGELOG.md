@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- Reduced built-in provider support to Anthropic, OpenAI, OpenAI Codex, and OpenRouter only.
+- Removed built-in provider aliases for non-core OpenAI-compatible vendors; custom OpenAI-compatible endpoints are still supported through `openai-completions` custom models.
+
+### Changed
+
+- Simplified `OpenAICompletionsCompat` to core compatibility flags and OpenRouter routing only.
+- Regenerated the model catalog to include only Anthropic, OpenAI, OpenAI Codex, and OpenRouter models.
+
+### Removed
+
+- Removed built-in provider implementations and OAuth providers outside the minimal provider set (including Azure OpenAI, Google providers, Bedrock, GitHub Copilot, Gemini CLI, and Antigravity).
+
 ## [0.52.12] - 2026-02-13
 
 ### Added

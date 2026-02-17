@@ -27,8 +27,6 @@ import type {
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { parseStreamingJson } from "../utils/json-parse.js";
 import { sanitizeSurrogates } from "../utils/sanitize-unicode.js";
-
-import { buildCopilotDynamicHeaders, hasCopilotVisionInput } from "./github-copilot-headers.js";
 import { adjustMaxTokensForThinking, buildBaseOptions } from "./simple-options.js";
 import { transformMessages } from "./transform-messages.js";
 
@@ -219,21 +217,11 @@ export const streamAnthropic: StreamFunction<"anthropic-messages", AnthropicOpti
 		try {
 			const apiKey = options?.apiKey ?? getEnvApiKey(model.provider) ?? "";
 
-			let copilotDynamicHeaders: Record<string, string> | undefined;
-			if (model.provider === "github-copilot") {
-				const hasImages = hasCopilotVisionInput(context.messages);
-				copilotDynamicHeaders = buildCopilotDynamicHeaders({
-					messages: context.messages,
-					hasImages,
-				});
-			}
-
 			const { client, isOAuthToken } = createClient(
 				model,
 				apiKey,
 				options?.interleavedThinking ?? true,
 				options?.headers,
-				copilotDynamicHeaders,
 			);
 			const params = buildParams(model, context, isOAuthToken, options);
 			options?.onPayload?.(params);
@@ -488,35 +476,7 @@ function createClient(
 	apiKey: string,
 	interleavedThinking: boolean,
 	optionsHeaders?: Record<string, string>,
-	dynamicHeaders?: Record<string, string>,
 ): { client: Anthropic; isOAuthToken: boolean } {
-	// Copilot: Bearer auth, selective betas (no fine-grained-tool-streaming)
-	if (model.provider === "github-copilot") {
-		const betaFeatures: string[] = [];
-		if (interleavedThinking) {
-			betaFeatures.push("interleaved-thinking-2025-05-14");
-		}
-
-		const client = new Anthropic({
-			apiKey: null,
-			authToken: apiKey,
-			baseURL: model.baseUrl,
-			dangerouslyAllowBrowser: true,
-			defaultHeaders: mergeHeaders(
-				{
-					accept: "application/json",
-					"anthropic-dangerous-direct-browser-access": "true",
-					...(betaFeatures.length > 0 ? { "anthropic-beta": betaFeatures.join(",") } : {}),
-				},
-				model.headers,
-				dynamicHeaders,
-				optionsHeaders,
-			),
-		});
-
-		return { client, isOAuthToken: false };
-	}
-
 	const betaFeatures = ["fine-grained-tool-streaming-2025-05-14"];
 	if (interleavedThinking) {
 		betaFeatures.push("interleaved-thinking-2025-05-14");
