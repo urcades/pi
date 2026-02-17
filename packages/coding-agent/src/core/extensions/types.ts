@@ -13,7 +13,7 @@ import type {
 	AgentToolResult,
 	AgentToolUpdateCallback,
 	ThinkingLevel,
-} from "@mariozechner/pi-agent-core";
+} from "../agent-core/index.js";
 import type {
 	Api,
 	AssistantMessageEvent,

@@ -5,11 +5,7 @@ If the user did not give you a concrete task in their first message,
 read README.md, then ask which module(s) to work on. Based on the answer, read the relevant README.md files in parallel.
 - packages/ai/README.md
 - packages/tui/README.md
-- packages/agent/README.md
 - packages/coding-agent/README.md
-- packages/mom/README.md
-- packages/pods/README.md
-- packages/web-ui/README.md
 
 ## Code Quality
 - No `any` types unless absolutely necessary
@@ -20,7 +16,7 @@ read README.md, then ask which module(s) to work on. Based on the answer, read t
 - Never hardcode key checks with, eg. `matchesKey(keyData, "ctrl+x")`. All keybindings must be configurable. Add default to matching object (`DEFAULT_EDITOR_KEYBINDINGS` or `DEFAULT_APP_KEYBINDINGS`)
 
 ## Commands
-- After code changes (not documentation changes): `npm run check` (get full output, no tail). Fix all errors, warnings, and infos before committing.
+- After code changes (not documentation changes): `npm run check` (get full output, no tail). Fix all reported type errors before committing.
 - Note: `npm run check` does not run tests.
 - NEVER run: `npm run dev`, `npm run build`, `npm test`
 - Only run specific tests if user instructs: `npx tsx ../../node_modules/vitest/dist/cli.js --run test/specific.test.ts`
@@ -38,7 +34,7 @@ When reading issues:
 
 When creating issues:
 - Add `pkg:*` labels to indicate which package(s) the issue affects
-  - Available labels: `pkg:agent`, `pkg:ai`, `pkg:coding-agent`, `pkg:mom`, `pkg:pods`, `pkg:tui`, `pkg:web-ui`
+  - Available labels: `pkg:ai`, `pkg:coding-agent`, `pkg:tui`
 - If an issue spans multiple packages, add all relevant labels
 
 When closing issues via commit:
@@ -52,7 +48,7 @@ When closing issues via commit:
 
 ## Tools
 - GitHub CLI for issues/PRs
-- Add package labels to issues/PRs: pkg:agent, pkg:ai, pkg:coding-agent, pkg:mom, pkg:pods, pkg:tui, pkg:web-ui
+- Add package labels to issues/PRs: pkg:ai, pkg:coding-agent, pkg:tui
 
 ## Testing pi Interactive Mode with tmux
 
@@ -63,7 +59,7 @@ To test pi's TUI in a controlled terminal environment:
 tmux new-session -d -s pi-test -x 80 -y 24
 
 # Start pi from source
-tmux send-keys -t pi-test "cd /Users/badlogic/workspaces/pi-mono && ./pi-test.sh" Enter
+tmux send-keys -t pi-test "cd /Users/badlogic/workspaces/pi-mono && bash ./scripts/pi-test.sh" Enter
 
 # Wait for startup, then capture output
 sleep 3 && tmux capture-pane -t pi-test -p
