@@ -768,9 +768,9 @@ const gptResponse = await complete(gpt5, context);
 context.messages.push(gptResponse);
 
 // Switch to OpenRouter
-const gemini = getModel('openrouter', 'openai/gpt-5.1-codex');
+const openrouterModel = getModel('openrouter', 'openai/gpt-5.1-codex');
 context.messages.push({ role: 'user', content: 'What was the original question?' });
-const geminiResponse = await complete(gemini, context);
+const openrouterResponse = await complete(openrouterModel, context);
 ```
 
 ### Provider Compatibility

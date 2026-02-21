@@ -93,7 +93,7 @@ For each built-in provider, pi maintains a list of tool-capable models, updated 
 - OpenAI
 - OpenRouter
 
-See [docs/providers.md](docs/providers.md) for detailed setup instructions.
+See [packages/ai authentication docs](../ai/README.md#environment-variables-nodejs-only) and [OAuth setup](../ai/README.md#oauth-providers) for provider setup details.
 
 **Custom providers & models:** Add providers via `~/.pi/agent/models.json` if they speak a supported API (OpenAI-compatible or Anthropic-compatible). For custom APIs or OAuth, use extensions. See [docs/models.md](docs/models.md) and [docs/custom-provider.md](docs/custom-provider.md).
 

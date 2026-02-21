@@ -36,7 +36,7 @@ pi-coding-agent ← pi-tui
 
 ### Package Summaries
 
-- **pi-ai** (`packages/ai`) — Unified multi-provider LLM streaming API. Normalizes 15+ providers (Anthropic, OpenAI, Google, Bedrock, etc.) into a standard `AssistantMessageEvent` stream. Core abstraction: `EventStream<T, R>` (async iterator with result extraction). Provider implementations live in `src/providers/`. Model catalog is auto-generated (`models.generated.ts` via `scripts/generate-models.ts`).
+- **pi-ai** (`packages/ai`) — Unified multi-provider LLM streaming API. Normalizes Anthropic, OpenAI, OpenAI Codex, OpenRouter, and custom OpenAI-compatible endpoints into a standard `AssistantMessageEvent` stream. Core abstraction: `EventStream<T, R>` (async iterator with result extraction). Provider implementations live in `src/providers/`. Model catalog is auto-generated (`models.generated.ts` via `scripts/generate-models.ts`).
 
 - **pi-tui** (`packages/tui`) — Terminal UI with differential rendering. `tui.ts` diffs component trees and emits minimal ANSI sequences. Key components: `editor.ts` (full text editor), `markdown.ts` (syntax-highlighted rendering), `keys.ts` (keyboard parsing). Overlay system for modals. Detects Kitty/iTerm2 for inline images.
 
