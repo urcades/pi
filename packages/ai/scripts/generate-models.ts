@@ -203,6 +203,24 @@ function addFallbackModels(allModels: CoreModel[]): void {
 	});
 
 	ensureModel(allModels, {
+		id: "claude-sonnet-4-6",
+		name: "Claude Sonnet 4.6",
+		api: "anthropic-messages",
+		baseUrl: "https://api.anthropic.com",
+		provider: "anthropic",
+		reasoning: true,
+		input: ["text", "image"],
+		cost: {
+			input: 3,
+			output: 15,
+			cacheRead: 0.3,
+			cacheWrite: 3.75,
+		},
+		contextWindow: 200000,
+		maxTokens: 64000,
+	});
+
+	ensureModel(allModels, {
 		id: "gpt-5-chat-latest",
 		name: "GPT-5 Chat Latest",
 		api: "openai-responses",
