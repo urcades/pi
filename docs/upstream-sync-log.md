@@ -4,6 +4,98 @@ Use one section per sync cycle.
 
 ---
 
+## Sync Cycle: 2026-02-22
+
+### Metadata
+
+- Sync branch: `sync/upstream-20260221`
+- Operator: `claude-sonnet-4-6`
+- Started at: `2026-02-22`
+- Completed at: `2026-02-22`
+- Base branch/commit: `main @ ba750581`
+- Upstream window:
+  - from: `0a6b0b8f` (last synced)
+  - to: `3a3e37d3` (`upstream/main`, covers v0.53.0, v0.53.1, v0.54.0)
+
+### Preflight Snapshot
+
+- `git status --short` summary: 2 modified files (update banner fix + models regen), 1 untracked dir (`.claude/`) — committed to main before branching.
+- Notable local divergence notes: intentional fork simplifications, no docs/tests/examples directories.
+
+### Commit Triage
+
+| Commit | Area | Classification | Decision | Notes |
+| --- | --- | --- | --- | --- |
+| `5133697b` | README vacation docs | defer | skipped | docs only |
+| `312af81e` | ai CHANGELOG | defer | skipped | changelog only |
+| `6e4680d1` | coding-agent CHANGELOG | defer | skipped | changelog only |
+| `b9a2b6cc` | coding-agent CHANGELOG | defer | skipped | changelog only |
+| `7207c16c` | coding-agent CHANGELOG | defer | skipped | changelog only |
+| `ce1410b0` | Release v0.53.0 | defer | skipped | version bumps |
+| `4ba3e5be` | [Unreleased] section | defer | skipped | housekeeping |
+| `18ea1ed9` | Release v0.53.1 | defer | skipped | version bumps |
+| `5706e66a` | [Unreleased] section | defer | skipped | housekeeping |
+| `76b02a81` | Release v0.54.0 | defer | skipped | version bumps |
+| `3a3e37d3` | [Unreleased] section | defer | skipped | housekeeping |
+| `65a3b287` | merge wrapper (auth storage) | defer | skipped | non-actionable wrapper |
+| `0a6b0b8f` | merge wrapper (settings) | defer | skipped | non-actionable wrapper |
+| `0245b524` | feat(ai): Sonnet 4.6 fallback | manual | applied | cherry-pick conflicted; ported manually using `ensureModel` pattern |
+| `18c7ab8a` | chore(models): Gemini catalog | defer | skipped | references `ANTIGRAVITY_ENDPOINT`/`VERTEX_BASE_URL` not present in fork |
+| `2977c149` | refactor: auth storage backend | manual | applied | runtime files only; skipped tests/examples/docs/mom package |
+| `39cbf47e` | feat: .agents skill discovery | direct (partial) | applied | cherry-pick applied cleanly to package-manager.ts; conflict-deleted upstream docs/tests/CHANGELOG |
+
+### Path Mapping Decisions
+
+- `packages/coding-agent/docs/sdk.md`, `docs/skills.md` — upstream-introduced by `39cbf47e`, removed (fork has no docs dir).
+- `packages/coding-agent/test/package-manager.test.ts` — upstream-introduced by `39cbf47e`, removed (fork has no tests).
+- `packages/mom/src/agent.ts` — touched by `2977c149`, skipped (fork doesn't include `mom` package).
+
+### Integration Batches
+
+#### Batch 1
+
+- Included commits: `0245b524` (manual port)
+- Integration mode: manual port (used `ensureModel` pattern instead of upstream's `allModels.push`)
+- Files touched: `packages/ai/scripts/generate-models.ts`
+- Outcome: successful
+
+#### Batch 2
+
+- Included commits: `2977c149` (manual port, runtime files only)
+- Integration mode: manual port
+- Files touched: `packages/coding-agent/src/core/auth-storage.ts`, `src/core/sdk.ts`, `src/index.ts`, `src/main.ts`
+- Outcome: successful
+
+#### Batch 3
+
+- Included commits: `39cbf47e` (cherry-pick with conflict resolution)
+- Integration mode: cherry-pick; conflict files removed (docs/tests/CHANGELOG not in fork)
+- Files touched: `packages/coding-agent/src/core/package-manager.ts`
+- Outcome: successful
+
+### Verification Results
+
+- `npm run check`: **passed**
+- `./scripts/pi-test.sh --version`: **passed** (`0.52.12`)
+- `npm run build`: **passed**
+- `dist/cli.js --version`: **passed** (`0.52.12`)
+
+### Deferred Items
+
+| Commit/Area | Why deferred | Follow-up trigger |
+| --- | --- | --- |
+| `18c7ab8a` Gemini/Antigravity catalog | References provider infrastructure not in this fork | Only if Google/Vertex providers are added |
+| All release/changelog/docs commits | No runtime value for single-user fork | N/A |
+
+### Final Summary
+
+- What was imported: Sonnet 4.6 model fallback; auth storage backend abstraction; `.agents` path skill discovery.
+- What was intentionally skipped: Gemini/Antigravity catalog (missing provider infra), all changelog/release/docs commits, mom package changes, tests/examples.
+- Risk notes: low — all three batches passed type check, version smoke test, and full build.
+- Follow-up tasks: none outstanding.
+
+---
+
 ## Sync Cycle: YYYY-MM-DD
 
 ### Metadata
