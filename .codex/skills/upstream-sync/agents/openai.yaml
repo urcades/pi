@@ -1,0 +1,4 @@
+interface:
+  display_name: "Upstream Sync"
+  short_description: "Port bounded upstream changes safely"
+  default_prompt: "Use $upstream-sync to evaluate and import a bounded set of upstream changes into this fork without breaking fork invariants."
