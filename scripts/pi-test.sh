@@ -54,4 +54,10 @@ if [[ "$NO_ENV" == "true" ]]; then
   echo "Running without API keys..."
 fi
 
-npx tsx "$REPO_ROOT/packages/coding-agent/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}
+TSX_BIN="$REPO_ROOT/node_modules/.bin/tsx"
+if [[ ! -x "$TSX_BIN" ]]; then
+  echo "tsx not found at $TSX_BIN. Run npm install from the repo root first." >&2
+  exit 1
+fi
+
+"$TSX_BIN" "$REPO_ROOT/packages/coding-agent/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}

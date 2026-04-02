@@ -518,6 +518,12 @@ export class InteractiveMode {
 			}
 		});
 
+		this.checkTmuxKeyboardSetup().then((warning) => {
+			if (warning) {
+				this.showWarning(warning);
+			}
+		});
+
 		// Show startup warnings
 		const { migratedProviders, modelFallbackMessage, initialMessage, initialImages, initialMessages } = this.options;
 
@@ -571,6 +577,50 @@ export class InteractiveMode {
 	 * Check npm registry for a newer version.
 	 */
 	private async checkForNewVersion(): Promise<string | undefined> {
+		return undefined;
+	}
+
+	private async checkTmuxKeyboardSetup(): Promise<string | undefined> {
+		if (!process.env.TMUX) return undefined;
+
+		const runTmuxShow = (option: string): Promise<string | undefined> => {
+			return new Promise((resolve) => {
+				const proc = spawn("tmux", ["show", "-gv", option], {
+					stdio: ["ignore", "pipe", "ignore"],
+				});
+				let stdout = "";
+				const timer = setTimeout(() => {
+					proc.kill();
+					resolve(undefined);
+				}, 2000);
+
+				proc.stdout?.on("data", (data) => {
+					stdout += data.toString();
+				});
+				proc.on("error", () => {
+					clearTimeout(timer);
+					resolve(undefined);
+				});
+				proc.on("close", (code) => {
+					clearTimeout(timer);
+					resolve(code === 0 ? stdout.trim() : undefined);
+				});
+			});
+		};
+
+		const [extendedKeys, extendedKeysFormat] = await Promise.all([
+			runTmuxShow("extended-keys"),
+			runTmuxShow("extended-keys-format"),
+		]);
+
+		if (extendedKeys !== "on" && extendedKeys !== "always") {
+			return "tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.";
+		}
+
+		if (extendedKeysFormat === "xterm") {
+			return "tmux extended-keys-format is xterm. Pi works best with csi-u. Add `set -g extended-keys-format csi-u` to ~/.tmux.conf and restart tmux.";
+		}
+
 		return undefined;
 	}
 
@@ -1410,6 +1460,9 @@ export class InteractiveMode {
 				}
 				const result = setTheme(themeOrName, true);
 				if (result.success) {
+					if (this.settingsManager.getTheme() !== themeOrName) {
+						this.settingsManager.setTheme(themeOrName);
+					}
 					this.ui.requestRender();
 				}
 				return result;
@@ -3025,6 +3078,7 @@ export class InteractiveMode {
 					hideThinkingBlock: this.hideThinkingBlock,
 					collapseChangelog: this.settingsManager.getCollapseChangelog(),
 					doubleEscapeAction: this.settingsManager.getDoubleEscapeAction(),
+					treeFilterMode: this.settingsManager.getTreeFilterMode(),
 					showHardwareCursor: this.settingsManager.getShowHardwareCursor(),
 					editorPaddingX: this.settingsManager.getEditorPaddingX(),
 					autocompleteMaxVisible: this.settingsManager.getAutocompleteMaxVisible(),
@@ -3103,6 +3157,9 @@ export class InteractiveMode {
 					},
 					onDoubleEscapeActionChange: (action) => {
 						this.settingsManager.setDoubleEscapeAction(action);
+					},
+					onTreeFilterModeChange: (mode) => {
+						this.settingsManager.setTreeFilterMode(mode);
 					},
 					onShowHardwareCursorChange: (enabled) => {
 						this.settingsManager.setShowHardwareCursor(enabled);
@@ -3393,6 +3450,7 @@ export class InteractiveMode {
 	private showTreeSelector(initialSelectedId?: string): void {
 		const tree = this.sessionManager.getTree();
 		const realLeafId = this.sessionManager.getLeafId();
+		const initialFilterMode = this.settingsManager.getTreeFilterMode();
 
 		if (tree.length === 0) {
 			this.showStatus("No entries in session");
@@ -3419,31 +3477,33 @@ export class InteractiveMode {
 					let wantsSummary = false;
 					let customInstructions: string | undefined;
 
-					while (true) {
-						const summaryChoice = await this.showExtensionSelector("Summarize branch?", [
-							"No summary",
-							"Summarize",
-							"Summarize with custom prompt",
-						]);
+					if (!this.settingsManager.getBranchSummarySkipPrompt()) {
+						while (true) {
+							const summaryChoice = await this.showExtensionSelector("Summarize branch?", [
+								"No summary",
+								"Summarize",
+								"Summarize with custom prompt",
+							]);
 
-						if (summaryChoice === undefined) {
-							// User pressed escape - re-show tree selector with same selection
-							this.showTreeSelector(entryId);
-							return;
-						}
-
-						wantsSummary = summaryChoice !== "No summary";
-
-						if (summaryChoice === "Summarize with custom prompt") {
-							customInstructions = await this.showExtensionEditor("Custom summarization instructions");
-							if (customInstructions === undefined) {
-								// User cancelled - loop back to summary selector
-								continue;
+							if (summaryChoice === undefined) {
+								// User pressed escape - re-show tree selector with same selection
+								this.showTreeSelector(entryId);
+								return;
 							}
-						}
 
-						// User made a complete choice
-						break;
+							wantsSummary = summaryChoice !== "No summary";
+
+							if (summaryChoice === "Summarize with custom prompt") {
+								customInstructions = await this.showExtensionEditor("Custom summarization instructions");
+								if (customInstructions === undefined) {
+									// User cancelled - loop back to summary selector
+									continue;
+								}
+							}
+
+							// User made a complete choice
+							break;
+						}
 					}
 
 					// Set up escape handler and loader if summarizing
@@ -3508,6 +3568,7 @@ export class InteractiveMode {
 					this.ui.requestRender();
 				},
 				initialSelectedId,
+				initialFilterMode,
 			);
 			return { component: selector, focus: selector };
 		});

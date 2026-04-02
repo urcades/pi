@@ -375,9 +375,49 @@ async function promptConfirm(message: string): Promise<boolean> {
 	});
 }
 
+function validateForkFlags(parsed: Args): void {
+	if (!parsed.fork) return;
+
+	const conflictingFlags = [
+		parsed.session ? "--session" : undefined,
+		parsed.continue ? "--continue" : undefined,
+		parsed.resume ? "--resume" : undefined,
+		parsed.noSession ? "--no-session" : undefined,
+	].filter((flag): flag is string => flag !== undefined);
+
+	if (conflictingFlags.length > 0) {
+		console.error(chalk.red(`Error: --fork cannot be combined with ${conflictingFlags.join(", ")}`));
+		process.exit(1);
+	}
+}
+
+function forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string): SessionManager {
+	try {
+		return SessionManager.forkFrom(sourcePath, cwd, sessionDir);
+	} catch (error: unknown) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(chalk.red(`Error: ${message}`));
+		process.exit(1);
+	}
+}
+
 async function createSessionManager(parsed: Args, cwd: string): Promise<SessionManager | undefined> {
 	if (parsed.noSession) {
 		return SessionManager.inMemory();
+	}
+	if (parsed.fork) {
+		const resolved = await resolveSessionPath(parsed.fork, cwd, parsed.sessionDir);
+
+		switch (resolved.type) {
+			case "path":
+			case "local":
+			case "global":
+				return forkSessionOrExit(resolved.path, cwd, parsed.sessionDir);
+
+			case "not_found":
+				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
+				process.exit(1);
+		}
 	}
 	if (parsed.session) {
 		const resolved = await resolveSessionPath(parsed.session, cwd, parsed.sessionDir);
@@ -395,7 +435,7 @@ async function createSessionManager(parsed: Args, cwd: string): Promise<SessionM
 					console.log(chalk.dim("Aborted."));
 					process.exit(0);
 				}
-				return SessionManager.forkFrom(resolved.path, cwd, parsed.sessionDir);
+				return forkSessionOrExit(resolved.path, cwd, parsed.sessionDir);
 			}
 
 			case "not_found":
@@ -647,6 +687,8 @@ export async function main(args: string[]) {
 		console.error(chalk.red("Error: @file arguments are not supported in RPC mode"));
 		process.exit(1);
 	}
+
+	validateForkFlags(parsed);
 
 	const { initialMessage, initialImages } = await prepareInitialMessage(parsed, settingsManager.getImageAutoResize());
 	const isInteractive = !parsed.print && parsed.mode === undefined;

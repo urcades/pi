@@ -5,7 +5,7 @@ import { KillRing } from "../kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.js";
 import { UndoStack } from "../undo-stack.js";
 import { getSegmenter, isPunctuationChar, isWhitespaceChar, visibleWidth } from "../utils.js";
-import { SelectList, type SelectListTheme } from "./select-list.js";
+import { SelectList, type SelectListLayoutOptions, type SelectListTheme } from "./select-list.js";
 
 const segmenter = getSegmenter();
 
@@ -150,6 +150,11 @@ export interface EditorOptions {
 	paddingX?: number;
 	autocompleteMaxVisible?: number;
 }
+
+const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
+	minPrimaryColumnWidth: 12,
+	maxPrimaryColumnWidth: 32,
+};
 
 export class Editor implements Component, Focusable {
 	private state: EditorState = {
@@ -516,6 +521,7 @@ export class Editor implements Component, Focusable {
 			if (kb.matches(data, "tab")) {
 				const selected = this.autocompleteList.getSelectedItem();
 				if (selected && this.autocompleteProvider) {
+					const shouldChainSlashArgumentAutocomplete = this.shouldChainSlashArgumentAutocompleteOnTabSelection();
 					this.pushUndoSnapshot();
 					this.lastAction = null;
 					const result = this.autocompleteProvider.applyCompletion(
@@ -530,6 +536,10 @@ export class Editor implements Component, Focusable {
 					this.setCursorCol(result.cursorCol);
 					this.cancelAutocomplete();
 					if (this.onChange) this.onChange(this.getText());
+
+					if (shouldChainSlashArgumentAutocomplete && this.isBareCompletedSlashCommandAtCursor()) {
+						this.tryTriggerAutocomplete();
+					}
 				}
 				return;
 			}
@@ -1867,6 +1877,51 @@ export class Editor implements Component, Focusable {
 	}
 
 	// Autocomplete methods
+	private shouldChainSlashArgumentAutocompleteOnTabSelection(): boolean {
+		if (this.autocompleteState !== "regular") {
+			return false;
+		}
+
+		const currentLine = this.state.lines[this.state.cursorLine] || "";
+		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
+		return this.isInSlashCommandContext(textBeforeCursor) && !textBeforeCursor.trimStart().includes(" ");
+	}
+
+	private isBareCompletedSlashCommandAtCursor(): boolean {
+		const currentLine = this.state.lines[this.state.cursorLine] || "";
+		if (this.state.cursorCol !== currentLine.length) {
+			return false;
+		}
+
+		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol).trimStart();
+		return /^\/\S+ $/.test(textBeforeCursor);
+	}
+
+	private getBestAutocompleteMatchIndex(items: Array<{ value: string; label: string }>, prefix: string): number {
+		if (!prefix) return -1;
+
+		let firstPrefixIndex = -1;
+		for (let i = 0; i < items.length; i++) {
+			const value = items[i]!.value;
+			if (value === prefix) {
+				return i;
+			}
+			if (firstPrefixIndex === -1 && value.startsWith(prefix)) {
+				firstPrefixIndex = i;
+			}
+		}
+
+		return firstPrefixIndex;
+	}
+
+	private createAutocompleteList(
+		prefix: string,
+		items: Array<{ value: string; label: string; description?: string }>,
+	): SelectList {
+		const layout = prefix.startsWith("/") ? SLASH_COMMAND_SELECT_LIST_LAYOUT : undefined;
+		return new SelectList(items, this.autocompleteMaxVisible, this.theme.selectList, layout);
+	}
+
 	private tryTriggerAutocomplete(explicitTab: boolean = false): void {
 		if (!this.autocompleteProvider) return;
 
@@ -1889,7 +1944,11 @@ export class Editor implements Component, Focusable {
 
 		if (suggestions && suggestions.items.length > 0) {
 			this.autocompletePrefix = suggestions.prefix;
-			this.autocompleteList = new SelectList(suggestions.items, this.autocompleteMaxVisible, this.theme.selectList);
+			this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
+			const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
+			if (bestMatchIndex >= 0) {
+				this.autocompleteList.setSelectedIndex(bestMatchIndex);
+			}
 			this.autocompleteState = "regular";
 		} else {
 			this.cancelAutocomplete();
@@ -1958,7 +2017,11 @@ https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/
 			}
 
 			this.autocompletePrefix = suggestions.prefix;
-			this.autocompleteList = new SelectList(suggestions.items, this.autocompleteMaxVisible, this.theme.selectList);
+			this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
+			const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
+			if (bestMatchIndex >= 0) {
+				this.autocompleteList.setSelectedIndex(bestMatchIndex);
+			}
 			this.autocompleteState = "force";
 		} else {
 			this.cancelAutocomplete();
@@ -1991,7 +2054,11 @@ https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/
 		if (suggestions && suggestions.items.length > 0) {
 			this.autocompletePrefix = suggestions.prefix;
 			// Always create new SelectList to ensure update
-			this.autocompleteList = new SelectList(suggestions.items, this.autocompleteMaxVisible, this.theme.selectList);
+			this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
+			const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
+			if (bestMatchIndex >= 0) {
+				this.autocompleteList.setSelectedIndex(bestMatchIndex);
+			}
 		} else {
 			this.cancelAutocomplete();
 		}
