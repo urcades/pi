@@ -898,7 +898,7 @@ export type MessageRenderer<T = unknown> = (
 export interface RegisteredCommand {
 	name: string;
 	description?: string;
-	getArgumentCompletions?: (argumentPrefix: string) => AutocompleteItem[] | null;
+	getArgumentCompletions?: (argumentPrefix: string) => AutocompleteItem[] | Promise<AutocompleteItem[] | null> | null;
 	handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 }
 

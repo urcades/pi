@@ -8,6 +8,191 @@ Use one section per sync cycle.
 
 ### Metadata
 
+- Sync branch: `sync/upstream-20260402-r3`
+- Operator: `codex-gpt-5`
+- Started at: `2026-04-02`
+- Completed at: `2026-04-02`
+- Base branch/commit: `main @ c185befb`
+- Upstream window:
+  - from: `v0.62.0`
+  - to: `upstream/main`
+
+### Preflight Snapshot
+
+- `git status --short` summary: clean working tree on `main`; branched to `sync/upstream-20260402-r3` before edits.
+- Notable local divergence notes:
+  - preserve minimized fork shape; do not reintroduce removed docs/examples/tests/packages
+  - provider family surface remains fixed to Anthropic, OpenAI/Codex, and OpenAI-compatible flows already present locally
+  - existing local `sessionDir`, JSONL/share foundation, and extension compatibility are audit points, not green lights for wider surface growth
+
+### Commit/Feature Triage
+
+| Area | Classification | Decision | Notes |
+| --- | --- | --- | --- |
+| tranche A runtime/TUI/export/session fixes | manual | applied | bounded `v0.62.0..v0.63.0` ports only |
+| tranche B compaction/package-manager/render fixes | manual | applied | imported only the missing runtime/TUI deltas |
+| tranche C provider/export/render fixes | mixed | applied/audited | some commits were already present locally, others were ported |
+| `4c7df25d` blockquote style-prefix fix | audit | no-op | local `packages/tui/src/components/markdown.ts` already uses the quote style prefix |
+| `f456a7a4` | split audit | partial no-op | interactive compaction-summary half already present; edit-tool preview half does not map to local edit-tool shape |
+| `7e1dd888` | audit | already present | local `sendExtensionMessage()` already uses `source: "extension"` |
+| `2f8019b6` | manual | applied | emit the missing synthetic `toolcall_delta` when arguments only arrive in `.done` |
+| `39b1bf7b` | manual | applied | classify Anthropic structured `request_too_large` errors as overflow |
+| `09e9de57` | manual | applied | strip trailing default style prefixes after inline markdown rendering |
+
+### Path Mapping Decisions
+
+- Upstream `packages/coding-agent/src/**`, `packages/tui/src/**`, and `packages/ai/src/**` continue to map directly where the runtime files still exist locally.
+- Root/session script changes continue to map into local `scripts/**` when relevant.
+- Upstream docs/examples/tests and removed packages remain out of scope even when adjacent runtime commits are ported manually.
+
+### Integration Batches
+
+#### Tranche A
+
+- Target window: `v0.62.0..v0.63.0`
+- Included commits:
+  - `de29f653`
+  - `d08ab9b9`
+  - `cb4e4d8c`
+  - `0406b41a`
+  - `21950c5b`
+  - `4c7df25d`
+  - `a949490f`
+  - `ebe43708`
+  - `2b1fc90c`
+- Integration mode: manual port
+- Files touched:
+  - `docs/upstream-sync-log.md`
+  - `packages/coding-agent/package.json`
+  - `packages/coding-agent/src/core/export-html/index.ts`
+  - `packages/coding-agent/src/core/settings-manager.ts`
+  - `packages/coding-agent/src/main.ts`
+  - `packages/coding-agent/src/modes/interactive/components/bash-execution.ts`
+  - `packages/coding-agent/src/modes/print-mode.ts`
+  - `packages/tui/src/autocomplete.ts`
+  - `packages/tui/src/components/editor.ts`
+  - `packages/tui/src/tui.ts`
+- Outcome: successful
+
+#### Tranche B
+
+- Target window: `v0.63.0..v0.64.0`
+- Included commits:
+  - `a0734bd1` (manual split)
+  - `eeace797`
+  - `1ee0d28d`
+  - `49c0d860`
+  - `8c640588`
+- Audited but not re-ported:
+  - `f456a7a4` (interactive half already present locally; edit-tool half not applicable)
+  - `7e1dd888` (already present locally)
+- Integration mode: manual port
+- Files touched:
+  - `packages/coding-agent/src/core/agent-session.ts`
+  - `packages/coding-agent/src/core/compaction/compaction.ts`
+  - `packages/coding-agent/src/core/package-manager.ts`
+  - `packages/coding-agent/src/core/tools/edit-diff.ts`
+  - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+  - `packages/tui/src/keys.ts`
+  - `packages/tui/src/tui.ts`
+- Outcome: successful
+
+#### Tranche C
+
+- Target window: `v0.64.0..upstream/main`
+- Included commits:
+    - `2f8019b6`
+    - `39b1bf7b`
+    - `af124642`
+    - `a1e10789`
+    - `09e9de57`
+    - `21863d4e`
+- Audited but not re-ported:
+    - `5ce0d15b` (already present locally via `resolveVarRefs()` in `getThemeExportColors()`)
+- Integration mode: manual port plus audit
+- Files touched:
+    - `packages/coding-agent/src/core/agent-session.ts`
+    - `packages/coding-agent/src/core/extensions/types.ts`
+    - `packages/ai/src/providers/openai-responses-shared.ts`
+    - `packages/ai/src/utils/overflow.ts`
+    - `packages/tui/src/autocomplete.ts`
+    - `packages/tui/src/components/editor.ts`
+    - `packages/tui/src/components/markdown.ts`
+    - `packages/tui/src/tui.ts`
+  - Outcome: successful
+
+### Verification Results
+
+- Tranche A gate:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+  - `./scripts/rebuild-local-pi.sh`: passed
+  - `pi --version`: passed (`0.52.12`)
+  - linked `pi` target: `/Users/edouard/Developer/Organelle/pi/packages/coding-agent/dist/cli.js`
+- Temp-dir launcher smoke:
+  - `bash /Users/edouard/Developer/Organelle/pi/scripts/pi-test.sh --version` from a fresh temp directory: passed (`0.52.12`)
+  - unexpected `.pi/` directory creation: not observed
+- Settings-driven `sessionDir` smoke:
+  - project `.pi/settings.json` with `sessionDir` created one session file in the configured external directory
+  - local project `.pi/` contained only the settings file; session storage did not fall back to the project directory
+- Interactive tmux smoke:
+  - `/th` + `Tab` completed to `/skill:smithery-ai-cli` without chaining into argument autocomplete
+  - `@packages/tui/src/co` surfaced file suggestions promptly in the repo tree
+  - resizing the pane from `28` rows to `16` and back preserved the visible autocomplete viewport without corruption
+  - bash preview rendered a wrapped collapsed output block for a `40 x 140` line shell command without visual breakage
+- Tranche B gate:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+  - `./scripts/rebuild-local-pi.sh`: passed
+  - `pi --version`: passed (`0.52.12`)
+  - linked `pi` target: `/Users/edouard/Developer/Organelle/pi/packages/coding-agent/dist/cli.js`
+- Tranche C gate:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+  - `./scripts/rebuild-local-pi.sh`: passed
+  - `pi --version`: passed (`0.52.12`)
+  - linked `pi` target: `/Users/edouard/Developer/Organelle/pi/packages/coding-agent/dist/cli.js`
+- Targeted dist smoke checks:
+    - async slash argument completion awaited correctly and returned `found` from an async `/demo fo` completion source
+    - kitty keypad normalization inserted `2` from `\x1b[57401;1u` in the live editor input path
+    - bundled dark-theme export colors resolved through `getThemeExportColors()` and returned non-empty `pageBg/cardBg/infoBg` values
+    - OpenAI Responses emitted the missing final `toolcall_delta` (`1,"b":2}`) when arguments only completed in `response.function_call_arguments.done`
+    - Anthropic `request_too_large` 413 errors classified as overflow
+    - repeated-compaction prep retained the previous summary and summarized from the prior `firstKeptEntryId` boundary instead of starting after the compaction marker
+    - print-mode emitted `session_shutdown` in `finally`
+    - markdown inline rendering no longer left a trailing default ANSI style prefix at the end of the rendered line
+    - live tmux pass stayed mounted through startup, raw `Escape`, and an `80x24 -> 100x30 -> 80x24` resize cycle
+
+### Deferred Items
+
+| Commit/Area | Why deferred | Follow-up trigger |
+| --- | --- | --- |
+| post-`v0.62.0` provider-surface growth | preserve minimized fork scope | revisit only in a dedicated provider pass |
+| `d38ad0cd`, `e773527b`, `0f9db44a` | file-mutation churn beyond the chosen sweep | revisit in a dedicated edit/write stability pass |
+| `7a786d88` | broad model/auth/registry churn | revisit only if model-registry work becomes blocking |
+| `13b771e5` | package-update polish outside minimized core behavior | low priority |
+| `84d2b51a`, `835296b1` | tree metadata and low-value RPC additions | revisit only if tree UX becomes a priority |
+| `bc8eb74b`, `a3bf1eb3`, `bab58f82`, `758ede4d`, `6d744f02`, `17625cc8` | provider work outside the fork's first-class surface | only in a dedicated provider pass |
+| `20a57e75`, `7d4faa08`, `b5f425ad`, `ef6af5eb`, `de022ceb`, `d86122cb`, `e2f29b05` | extension/runtime architecture expansion | not minimization-friendly |
+| release/docs/changelog/tests-only commits | out of scope for minimized sync sweeps | skip by default |
+
+### Final Summary
+
+  - What was imported:
+    - post-`v0.62.0` runtime correctness in skill discovery, repeated compaction boundaries, queued-message UI updates, retry settling, cell-size input handling, overlay height bounding, keypad functional keys, async slash argument completions, OpenAI Responses done-delta recovery, Anthropic overflow classification, and markdown ANSI cleanup
+- What was intentionally skipped:
+  - new provider families, extension/runtime architecture growth, wide model/auth churn, and file-mutation refactors beyond the explicitly chosen bugfixes
+- Risk notes:
+  - the remaining upstream backlog is now mostly narrower bugfix and architecture churn; the next useful sync should be a much smaller `r4` rather than another broad sweep
+- Follow-up tasks:
+  - consider a narrow `r4` for post-`v0.62.0` residual bugfixes like file-mutation ordering only if they show up in real usage on this fork
+
+---
+
+## Sync Cycle: 2026-04-02
+
+### Metadata
+
 - Sync branch: `sync/upstream-20260402-r2-aggressive`
 - Operator: `codex-gpt-5`
 - Started at: `2026-04-02`

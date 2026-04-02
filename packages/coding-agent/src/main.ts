@@ -401,18 +401,24 @@ function forkSessionOrExit(sourcePath: string, cwd: string, sessionDir?: string)
 	}
 }
 
-async function createSessionManager(parsed: Args, cwd: string): Promise<SessionManager | undefined> {
+async function createSessionManager(
+	parsed: Args,
+	cwd: string,
+	settingsManager: SettingsManager,
+): Promise<SessionManager | undefined> {
+	const effectiveSessionDir = parsed.sessionDir ?? settingsManager.getSessionDir();
+
 	if (parsed.noSession) {
 		return SessionManager.inMemory();
 	}
 	if (parsed.fork) {
-		const resolved = await resolveSessionPath(parsed.fork, cwd, parsed.sessionDir);
+		const resolved = await resolveSessionPath(parsed.fork, cwd, effectiveSessionDir);
 
 		switch (resolved.type) {
 			case "path":
 			case "local":
 			case "global":
-				return forkSessionOrExit(resolved.path, cwd, parsed.sessionDir);
+				return forkSessionOrExit(resolved.path, cwd, effectiveSessionDir);
 
 			case "not_found":
 				console.error(chalk.red(`No session found matching '${resolved.arg}'`));
@@ -420,12 +426,12 @@ async function createSessionManager(parsed: Args, cwd: string): Promise<SessionM
 		}
 	}
 	if (parsed.session) {
-		const resolved = await resolveSessionPath(parsed.session, cwd, parsed.sessionDir);
+		const resolved = await resolveSessionPath(parsed.session, cwd, effectiveSessionDir);
 
 		switch (resolved.type) {
 			case "path":
 			case "local":
-				return SessionManager.open(resolved.path, parsed.sessionDir);
+				return SessionManager.open(resolved.path, effectiveSessionDir);
 
 			case "global": {
 				// Session found in different project - ask user if they want to fork
@@ -435,7 +441,7 @@ async function createSessionManager(parsed: Args, cwd: string): Promise<SessionM
 					console.log(chalk.dim("Aborted."));
 					process.exit(0);
 				}
-				return forkSessionOrExit(resolved.path, cwd, parsed.sessionDir);
+				return forkSessionOrExit(resolved.path, cwd, effectiveSessionDir);
 			}
 
 			case "not_found":
@@ -444,12 +450,11 @@ async function createSessionManager(parsed: Args, cwd: string): Promise<SessionM
 		}
 	}
 	if (parsed.continue) {
-		return SessionManager.continueRecent(cwd, parsed.sessionDir);
+		return SessionManager.continueRecent(cwd, effectiveSessionDir);
 	}
 	// --resume is handled separately (needs picker UI)
-	// If --session-dir provided without --continue/--resume, create new session there
-	if (parsed.sessionDir) {
-		return SessionManager.create(cwd, parsed.sessionDir);
+	if (effectiveSessionDir) {
+		return SessionManager.create(cwd, effectiveSessionDir);
 	}
 	// Default case (new session) returns undefined, SDK will create one
 	return undefined;
@@ -707,15 +712,16 @@ export async function main(args: string[]) {
 	}
 
 	// Create session manager based on CLI flags
-	let sessionManager = await createSessionManager(parsed, cwd);
+	let sessionManager = await createSessionManager(parsed, cwd, settingsManager);
 
 	// Handle --resume: show session picker
 	if (parsed.resume) {
 		// Initialize keybindings so session picker respects user config
 		KeybindingsManager.create();
+		const effectiveSessionDir = parsed.sessionDir ?? settingsManager.getSessionDir();
 
 		const selectedPath = await selectSession(
-			(onProgress) => SessionManager.list(cwd, parsed.sessionDir, onProgress),
+			(onProgress) => SessionManager.list(cwd, effectiveSessionDir, onProgress),
 			SessionManager.listAll,
 		);
 		if (!selectedPath) {
@@ -723,7 +729,7 @@ export async function main(args: string[]) {
 			stopThemeWatcher();
 			process.exit(0);
 		}
-		sessionManager = SessionManager.open(selectedPath);
+		sessionManager = SessionManager.open(selectedPath, effectiveSessionDir);
 	}
 
 	const { options: sessionOptions, cliThinkingFromModel } = buildSessionOptions(
@@ -797,7 +803,7 @@ export async function main(args: string[]) {
 		});
 		await mode.run();
 	} else {
-		await runPrintMode(session, {
+		const exitCode = await runPrintMode(session, {
 			mode,
 			messages: parsed.messages,
 			initialMessage,
@@ -807,6 +813,6 @@ export async function main(args: string[]) {
 		if (process.stdout.writableLength > 0) {
 			await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
 		}
-		process.exit(0);
+		process.exit(exitCode);
 	}
 }

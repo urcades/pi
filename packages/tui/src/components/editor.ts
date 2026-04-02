@@ -1,6 +1,6 @@
-import type { AutocompleteProvider, CombinedAutocompleteProvider } from "../autocomplete.js";
+import type { AutocompleteProvider, AutocompleteSuggestions, CombinedAutocompleteProvider } from "../autocomplete.js";
 import { getEditorKeybindings } from "../keybindings.js";
-import { matchesKey } from "../keys.js";
+import { matchesKey, normalizeKittyFunctionalCodepoint } from "../keys.js";
 import { KillRing } from "../kill-ring.js";
 import { type Component, CURSOR_MARKER, type Focusable, type TUI } from "../tui.js";
 import { UndoStack } from "../undo-stack.js";
@@ -119,6 +119,7 @@ function decodeKittyPrintable(data: string): string | undefined {
 	if (modifier & KITTY_MOD_SHIFT && typeof shiftedKey === "number") {
 		effectiveCodepoint = shiftedKey;
 	}
+	effectiveCodepoint = normalizeKittyFunctionalCodepoint(effectiveCodepoint);
 	// Drop control characters or invalid codepoints.
 	if (!Number.isFinite(effectiveCodepoint) || effectiveCodepoint < 32) return undefined;
 
@@ -156,6 +157,8 @@ const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
 	maxPrimaryColumnWidth: 32,
 };
 
+const ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS = 20;
+
 export class Editor implements Component, Focusable {
 	private state: EditorState = {
 		lines: [""],
@@ -185,6 +188,11 @@ export class Editor implements Component, Focusable {
 	private autocompleteState: "regular" | "force" | null = null;
 	private autocompletePrefix: string = "";
 	private autocompleteMaxVisible: number = 5;
+	private autocompleteAbort?: AbortController;
+	private autocompleteDebounceTimer?: ReturnType<typeof setTimeout>;
+	private autocompleteRequestTask: Promise<void> = Promise.resolve();
+	private autocompleteStartToken = 0;
+	private autocompleteRequestId = 0;
 
 	// Paste tracking for large pastes
 	private pastes: Map<number, string> = new Map();
@@ -250,6 +258,7 @@ export class Editor implements Component, Focusable {
 	}
 
 	setAutocompleteProvider(provider: AutocompleteProvider): void {
+		this.cancelAutocomplete();
 		this.autocompleteProvider = provider;
 	}
 
@@ -309,6 +318,7 @@ export class Editor implements Component, Focusable {
 
 	/** Internal setText that doesn't reset history state - used by navigateHistory */
 	private setTextInternal(text: string): void {
+		this.cancelAutocomplete();
 		const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
 		this.state.lines = lines.length === 0 ? [""] : lines;
 		this.state.cursorLine = this.state.lines.length - 1;
@@ -521,7 +531,6 @@ export class Editor implements Component, Focusable {
 			if (kb.matches(data, "tab")) {
 				const selected = this.autocompleteList.getSelectedItem();
 				if (selected && this.autocompleteProvider) {
-					const shouldChainSlashArgumentAutocomplete = this.shouldChainSlashArgumentAutocompleteOnTabSelection();
 					this.pushUndoSnapshot();
 					this.lastAction = null;
 					const result = this.autocompleteProvider.applyCompletion(
@@ -536,10 +545,6 @@ export class Editor implements Component, Focusable {
 					this.setCursorCol(result.cursorCol);
 					this.cancelAutocomplete();
 					if (this.onChange) this.onChange(this.getText());
-
-					if (shouldChainSlashArgumentAutocomplete && this.isBareCompletedSlashCommandAtCursor()) {
-						this.tryTriggerAutocomplete();
-					}
 				}
 				return;
 			}
@@ -853,6 +858,7 @@ export class Editor implements Component, Focusable {
 	}
 
 	setText(text: string): void {
+		this.cancelAutocomplete();
 		this.lastAction = null;
 		this.historyIndex = -1; // Exit history browsing mode
 		// Push undo snapshot if content differs (makes programmatic changes undoable)
@@ -869,6 +875,7 @@ export class Editor implements Component, Focusable {
 	 */
 	insertTextAtCursor(text: string): void {
 		if (!text) return;
+		this.cancelAutocomplete();
 		this.pushUndoSnapshot();
 		this.lastAction = null;
 		this.historyIndex = -1;
@@ -986,6 +993,7 @@ export class Editor implements Component, Focusable {
 	}
 
 	private handlePaste(pastedText: string): void {
+		this.cancelAutocomplete();
 		this.historyIndex = -1; // Exit history browsing mode
 		this.lastAction = null;
 
@@ -1046,6 +1054,7 @@ export class Editor implements Component, Focusable {
 	}
 
 	private addNewLine(): void {
+		this.cancelAutocomplete();
 		this.historyIndex = -1; // Exit history browsing mode
 		this.lastAction = null;
 
@@ -1081,6 +1090,7 @@ export class Editor implements Component, Focusable {
 	}
 
 	private submitValue(): void {
+		this.cancelAutocomplete();
 		let result = this.state.lines.join("\n").trim();
 		for (const [pasteId, pasteContent] of this.pastes) {
 			const markerRegex = new RegExp(`\\[paste #${pasteId}( (\\+\\d+ lines|\\d+ chars))?\\]`, "g");
@@ -1877,26 +1887,6 @@ export class Editor implements Component, Focusable {
 	}
 
 	// Autocomplete methods
-	private shouldChainSlashArgumentAutocompleteOnTabSelection(): boolean {
-		if (this.autocompleteState !== "regular") {
-			return false;
-		}
-
-		const currentLine = this.state.lines[this.state.cursorLine] || "";
-		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
-		return this.isInSlashCommandContext(textBeforeCursor) && !textBeforeCursor.trimStart().includes(" ");
-	}
-
-	private isBareCompletedSlashCommandAtCursor(): boolean {
-		const currentLine = this.state.lines[this.state.cursorLine] || "";
-		if (this.state.cursorCol !== currentLine.length) {
-			return false;
-		}
-
-		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol).trimStart();
-		return /^\/\S+ $/.test(textBeforeCursor);
-	}
-
 	private getBestAutocompleteMatchIndex(items: Array<{ value: string; label: string }>, prefix: string): number {
 		if (!prefix) return -1;
 
@@ -1923,36 +1913,7 @@ export class Editor implements Component, Focusable {
 	}
 
 	private tryTriggerAutocomplete(explicitTab: boolean = false): void {
-		if (!this.autocompleteProvider) return;
-
-		// Check if we should trigger file completion on Tab
-		if (explicitTab) {
-			const provider = this.autocompleteProvider as CombinedAutocompleteProvider;
-			const shouldTrigger =
-				!provider.shouldTriggerFileCompletion ||
-				provider.shouldTriggerFileCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol);
-			if (!shouldTrigger) {
-				return;
-			}
-		}
-
-		const suggestions = this.autocompleteProvider.getSuggestions(
-			this.state.lines,
-			this.state.cursorLine,
-			this.state.cursorCol,
-		);
-
-		if (suggestions && suggestions.items.length > 0) {
-			this.autocompletePrefix = suggestions.prefix;
-			this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
-			const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
-			if (bestMatchIndex >= 0) {
-				this.autocompleteList.setSelectedIndex(bestMatchIndex);
-			}
-			this.autocompleteState = "regular";
-		} else {
-			this.cancelAutocomplete();
-		}
+		void this.requestAutocomplete({ force: false, explicitTab });
 	}
 
 	private handleTabCompletion(): void {
@@ -1970,97 +1931,179 @@ export class Editor implements Component, Focusable {
 	}
 
 	private handleSlashCommandCompletion(): void {
-		this.tryTriggerAutocomplete(true);
+		void this.requestAutocomplete({ force: false, explicitTab: true });
 	}
 
-	/*
-https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19536643416/job/559322883
-17 this job fails with https://github.com/EsotericSoftware/spine-runtimes/actions/runs/19
-536643416/job/55932288317 havea  look at .gi
-	 */
 	private forceFileAutocomplete(explicitTab: boolean = false): void {
-		if (!this.autocompleteProvider) return;
-
-		// Check if provider supports force file suggestions via runtime check
-		const provider = this.autocompleteProvider as {
-			getForceFileSuggestions?: CombinedAutocompleteProvider["getForceFileSuggestions"];
-		};
-		if (typeof provider.getForceFileSuggestions !== "function") {
-			this.tryTriggerAutocomplete(true);
-			return;
-		}
-
-		const suggestions = provider.getForceFileSuggestions(
-			this.state.lines,
-			this.state.cursorLine,
-			this.state.cursorCol,
-		);
-
-		if (suggestions && suggestions.items.length > 0) {
-			// If there's exactly one suggestion, apply it immediately
-			if (explicitTab && suggestions.items.length === 1) {
-				const item = suggestions.items[0]!;
-				this.pushUndoSnapshot();
-				this.lastAction = null;
-				const result = this.autocompleteProvider.applyCompletion(
-					this.state.lines,
-					this.state.cursorLine,
-					this.state.cursorCol,
-					item,
-					suggestions.prefix,
-				);
-				this.state.lines = result.lines;
-				this.state.cursorLine = result.cursorLine;
-				this.setCursorCol(result.cursorCol);
-				if (this.onChange) this.onChange(this.getText());
-				return;
-			}
-
-			this.autocompletePrefix = suggestions.prefix;
-			this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
-			const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
-			if (bestMatchIndex >= 0) {
-				this.autocompleteList.setSelectedIndex(bestMatchIndex);
-			}
-			this.autocompleteState = "force";
-		} else {
-			this.cancelAutocomplete();
-		}
+		void this.requestAutocomplete({ force: true, explicitTab });
 	}
 
-	private cancelAutocomplete(): void {
+	private cancelAutocompleteRequest(): void {
+		this.autocompleteStartToken += 1;
+		if (this.autocompleteDebounceTimer) {
+			clearTimeout(this.autocompleteDebounceTimer);
+			this.autocompleteDebounceTimer = undefined;
+		}
+		this.autocompleteAbort?.abort();
+		this.autocompleteAbort = undefined;
+	}
+
+	private clearAutocompleteUi(): void {
 		this.autocompleteState = null;
 		this.autocompleteList = undefined;
 		this.autocompletePrefix = "";
+	}
+
+	private cancelAutocomplete(): void {
+		this.cancelAutocompleteRequest();
+		this.clearAutocompleteUi();
 	}
 
 	public isShowingAutocomplete(): boolean {
 		return this.autocompleteState !== null;
 	}
 
-	private updateAutocomplete(): void {
-		if (!this.autocompleteState || !this.autocompleteProvider) return;
+	private getAutocompleteDebounceMs(options: { force: boolean; explicitTab: boolean }): number {
+		if (options.force || options.explicitTab) {
+			return 0;
+		}
 
-		if (this.autocompleteState === "force") {
-			this.forceFileAutocomplete();
+		const currentLine = this.state.lines[this.state.cursorLine] || "";
+		const textBeforeCursor = currentLine.slice(0, this.state.cursorCol);
+		const isAttachmentContext = /(?:^|[ \t])@(?:"[^"]*|[^\s]*)$/.test(textBeforeCursor);
+		return isAttachmentContext ? ATTACHMENT_AUTOCOMPLETE_DEBOUNCE_MS : 0;
+	}
+
+	private async requestAutocomplete(options: { force: boolean; explicitTab: boolean }): Promise<void> {
+		if (!this.autocompleteProvider) return;
+
+		if (options.force) {
+			const provider = this.autocompleteProvider as CombinedAutocompleteProvider;
+			const shouldTrigger =
+				!provider.shouldTriggerFileCompletion ||
+				provider.shouldTriggerFileCompletion(this.state.lines, this.state.cursorLine, this.state.cursorCol);
+			if (!shouldTrigger) {
+				return;
+			}
+		}
+
+		this.cancelAutocompleteRequest();
+		const startToken = ++this.autocompleteStartToken;
+		const debounceMs = this.getAutocompleteDebounceMs(options);
+		if (debounceMs > 0) {
+			this.autocompleteDebounceTimer = setTimeout(() => {
+				this.autocompleteDebounceTimer = undefined;
+				void this.startAutocompleteRequest(startToken, options);
+			}, debounceMs);
 			return;
 		}
 
-		const suggestions = this.autocompleteProvider.getSuggestions(
+		await this.startAutocompleteRequest(startToken, options);
+	}
+
+	private async startAutocompleteRequest(
+		startToken: number,
+		options: { force: boolean; explicitTab: boolean },
+	): Promise<void> {
+		const previousTask = this.autocompleteRequestTask;
+		this.autocompleteRequestTask = (async () => {
+			await previousTask;
+			if (startToken !== this.autocompleteStartToken || !this.autocompleteProvider) {
+				return;
+			}
+
+			const controller = new AbortController();
+			this.autocompleteAbort = controller;
+			const requestId = ++this.autocompleteRequestId;
+			const snapshotText = this.getText();
+			const snapshotLine = this.state.cursorLine;
+			const snapshotCol = this.state.cursorCol;
+
+			await this.runAutocompleteRequest(requestId, controller, snapshotText, snapshotLine, snapshotCol, options);
+		})();
+		await this.autocompleteRequestTask;
+	}
+
+	private async runAutocompleteRequest(
+		requestId: number,
+		controller: AbortController,
+		snapshotText: string,
+		snapshotLine: number,
+		snapshotCol: number,
+		options: { force: boolean; explicitTab: boolean },
+	): Promise<void> {
+		if (!this.autocompleteProvider) return;
+
+		const suggestions = await this.autocompleteProvider.getSuggestions(
 			this.state.lines,
 			this.state.cursorLine,
 			this.state.cursorCol,
+			{ signal: controller.signal, force: options.force },
 		);
-		if (suggestions && suggestions.items.length > 0) {
-			this.autocompletePrefix = suggestions.prefix;
-			// Always create new SelectList to ensure update
-			this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
-			const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
-			if (bestMatchIndex >= 0) {
-				this.autocompleteList.setSelectedIndex(bestMatchIndex);
-			}
-		} else {
-			this.cancelAutocomplete();
+
+		if (!this.isAutocompleteRequestCurrent(requestId, controller, snapshotText, snapshotLine, snapshotCol)) {
+			return;
 		}
+
+		this.autocompleteAbort = undefined;
+
+		if (!suggestions || !Array.isArray(suggestions.items) || suggestions.items.length === 0) {
+			this.cancelAutocomplete();
+			this.tui.requestRender();
+			return;
+		}
+
+		if (options.force && options.explicitTab && suggestions.items.length === 1) {
+			const item = suggestions.items[0]!;
+			this.pushUndoSnapshot();
+			this.lastAction = null;
+			const result = this.autocompleteProvider.applyCompletion(
+				this.state.lines,
+				this.state.cursorLine,
+				this.state.cursorCol,
+				item,
+				suggestions.prefix,
+			);
+			this.state.lines = result.lines;
+			this.state.cursorLine = result.cursorLine;
+			this.setCursorCol(result.cursorCol);
+			if (this.onChange) this.onChange(this.getText());
+			this.tui.requestRender();
+			return;
+		}
+
+		this.applyAutocompleteSuggestions(suggestions, options.force ? "force" : "regular");
+		this.tui.requestRender();
+	}
+
+	private isAutocompleteRequestCurrent(
+		requestId: number,
+		controller: AbortController,
+		snapshotText: string,
+		snapshotLine: number,
+		snapshotCol: number,
+	): boolean {
+		return (
+			!controller.signal.aborted &&
+			requestId === this.autocompleteRequestId &&
+			this.getText() === snapshotText &&
+			this.state.cursorLine === snapshotLine &&
+			this.state.cursorCol === snapshotCol
+		);
+	}
+
+	private applyAutocompleteSuggestions(suggestions: AutocompleteSuggestions, state: "regular" | "force"): void {
+		this.autocompletePrefix = suggestions.prefix;
+		this.autocompleteList = this.createAutocompleteList(suggestions.prefix, suggestions.items);
+		const bestMatchIndex = this.getBestAutocompleteMatchIndex(suggestions.items, suggestions.prefix);
+		if (bestMatchIndex >= 0) {
+			this.autocompleteList.setSelectedIndex(bestMatchIndex);
+		}
+		this.autocompleteState = state;
+	}
+
+	private updateAutocomplete(): void {
+		if (!this.autocompleteState || !this.autocompleteProvider) return;
+		void this.requestAutocomplete({ force: this.autocompleteState === "force", explicitTab: false });
 	}
 }

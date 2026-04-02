@@ -2318,6 +2318,11 @@ export class InteractiveMode {
 				break;
 			}
 
+			case "queue_update":
+				this.updatePendingMessagesDisplay();
+				this.ui.requestRender();
+				break;
+
 			case "auto_retry_start": {
 				// Set up escape to abort retry
 				this.retryEscapeHandler = this.defaultEditor.onEscape;
