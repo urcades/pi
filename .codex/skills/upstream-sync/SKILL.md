@@ -40,9 +40,13 @@ Treat them as the detailed source of truth. This skill is the compact execution 
 
 ### 1. Preflight
 
+Before you create or resume any sync branch, audit the current local state. The upstream window is not enough; you also need to know what is already present in this branch, this worktree, and any sibling worktrees.
+
 Run:
 
 ```bash
+git status --short --branch
+git worktree list --verbose
 git remote -v
 git fetch origin
 git checkout main
@@ -50,6 +54,22 @@ git pull --ff-only origin main
 git status --short
 git checkout -b sync/upstream-YYYYMMDD
 ```
+
+If you are resuming an existing sync branch instead of creating a fresh one, also run:
+
+```bash
+git log --oneline main..HEAD
+git diff --name-status main..HEAD
+git diff --name-status
+```
+
+Then classify local state before touching code:
+
+- clean baseline: no local edits or branch-local commits beyond the chosen sync scope
+- branch-local work in progress: uncommitted or unmerged sync work already exists locally
+- stale worktree: registered worktree is broken, detached, or points at an old repo path
+
+When a planned upstream change is already present in the active branch/worktree, mark it as `audit-only` in the sync log and do not port it again. If a sibling worktree contains incomplete sync work, inspect and resolve that state first instead of duplicating effort on a new branch.
 
 Record the baseline state in the sync log before importing anything.
 
@@ -84,6 +104,7 @@ Classify each candidate commit:
 
 - direct apply: paths map cleanly to files that still exist locally
 - manual port: touches `packages/agent/**`, moved paths, or structurally divergent fork areas
+- audit-only: equivalent behavior is already present locally in the active sync branch, a merged prior sync, or a sibling worktree under review
 - defer: docs-only, changelog-only, release-wrapper, intentionally removed packages, or changes that violate fork invariants
 
 Log every decision before integrating.
