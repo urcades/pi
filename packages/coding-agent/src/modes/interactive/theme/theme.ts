@@ -660,6 +660,7 @@ function setGlobalTheme(t: Theme): void {
 
 let currentThemeName: string | undefined;
 let themeWatcher: fs.FSWatcher | undefined;
+let themeReloadTimer: NodeJS.Timeout | undefined;
 let onThemeChangeCallback: (() => void) | undefined;
 const registeredThemes = new Map<string, Theme>();
 
@@ -725,11 +726,7 @@ export function onThemeChange(callback: () => void): void {
 }
 
 function startThemeWatcher(): void {
-	// Stop existing watcher if any
-	if (themeWatcher) {
-		themeWatcher.close();
-		themeWatcher = undefined;
-	}
+	stopThemeWatcher();
 
 	// Only watch if it's a custom theme (not built-in)
 	if (!currentThemeName || currentThemeName === "dark" || currentThemeName === "light") {
@@ -737,52 +734,67 @@ function startThemeWatcher(): void {
 	}
 
 	const customThemesDir = getCustomThemesDir();
-	const themeFile = path.join(customThemesDir, `${currentThemeName}.json`);
+	const watchedThemeName = currentThemeName;
+	const watchedFileName = `${watchedThemeName}.json`;
+	const themeFile = path.join(customThemesDir, watchedFileName);
 
 	// Only watch if the file exists
 	if (!fs.existsSync(themeFile)) {
 		return;
 	}
 
-	try {
-		themeWatcher = fs.watch(themeFile, (eventType) => {
-			if (eventType === "change") {
-				// Debounce rapid changes
-				setTimeout(() => {
-					try {
-						// Reload the theme
-						setGlobalTheme(loadTheme(currentThemeName!));
-						// Notify callback (to invalidate UI)
-						if (onThemeChangeCallback) {
-							onThemeChangeCallback();
-						}
-					} catch (_error) {
-						// Ignore errors (file might be in invalid state while being edited)
-					}
-				}, 100);
-			} else if (eventType === "rename") {
-				// File was deleted or renamed - fall back to default theme
-				setTimeout(() => {
-					if (!fs.existsSync(themeFile)) {
-						currentThemeName = "dark";
-						setGlobalTheme(loadTheme("dark"));
-						if (themeWatcher) {
-							themeWatcher.close();
-							themeWatcher = undefined;
-						}
-						if (onThemeChangeCallback) {
-							onThemeChangeCallback();
-						}
-					}
-				}, 100);
+	const scheduleReload = () => {
+		if (themeReloadTimer) {
+			clearTimeout(themeReloadTimer);
+		}
+		themeReloadTimer = setTimeout(() => {
+			themeReloadTimer = undefined;
+
+			if (currentThemeName !== watchedThemeName) {
+				return;
 			}
+
+			if (!fs.existsSync(themeFile)) {
+				return;
+			}
+
+			try {
+				const reloadedTheme = loadThemeFromPath(themeFile);
+				registeredThemes.set(watchedThemeName, reloadedTheme);
+				setGlobalTheme(reloadedTheme);
+				if (onThemeChangeCallback) {
+					onThemeChangeCallback();
+				}
+			} catch {
+				// Ignore errors while the file is being edited.
+			}
+		}, 100);
+	};
+
+	try {
+		themeWatcher = fs.watch(customThemesDir, (_eventType, filename) => {
+			if (currentThemeName !== watchedThemeName) {
+				return;
+			}
+			if (!filename) {
+				scheduleReload();
+				return;
+			}
+			if (String(filename) !== watchedFileName) {
+				return;
+			}
+			scheduleReload();
 		});
-	} catch (_error) {
+	} catch {
 		// Ignore errors starting watcher
 	}
 }
 
 export function stopThemeWatcher(): void {
+	if (themeReloadTimer) {
+		clearTimeout(themeReloadTimer);
+		themeReloadTimer = undefined;
+	}
 	if (themeWatcher) {
 		themeWatcher.close();
 		themeWatcher = undefined;

@@ -140,6 +140,27 @@ export class ToolExecutionComponent extends Container {
 		return isBuiltInName && !hasCustomRenderers;
 	}
 
+	private getBuiltInFallbackTextParts(): { header: string; body: string } | undefined {
+		if (!(this.toolName in allTools)) {
+			return undefined;
+		}
+
+		const text = this.formatToolExecution();
+		if (!text) {
+			return undefined;
+		}
+
+		const separatorIndex = text.indexOf("\n\n");
+		if (separatorIndex === -1) {
+			return { header: text, body: "" };
+		}
+
+		return {
+			header: text.slice(0, separatorIndex),
+			body: text.slice(separatorIndex + 2),
+		};
+	}
+
 	updateArgs(args: any): void {
 		this.args = args;
 		if (this.toolName === "write" && this.isPartial) {
@@ -378,6 +399,7 @@ export class ToolExecutionComponent extends Container {
 			// Custom tools use Box for flexible component rendering
 			this.contentBox.setBgFn(bgFn);
 			this.contentBox.clear();
+			const builtInFallback = this.getBuiltInFallbackTextParts();
 
 			// Render call component
 			if (this.toolDefinition.renderCall) {
@@ -390,6 +412,8 @@ export class ToolExecutionComponent extends Container {
 					// Fall back to default on error
 					this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0));
 				}
+			} else if (builtInFallback) {
+				this.contentBox.addChild(new Text(builtInFallback.header, 0, 0));
 			} else {
 				// No custom renderCall, show tool name
 				this.contentBox.addChild(new Text(theme.fg("toolTitle", theme.bold(this.toolName)), 0, 0));
@@ -413,6 +437,8 @@ export class ToolExecutionComponent extends Container {
 						this.contentBox.addChild(new Text(theme.fg("toolOutput", output), 0, 0));
 					}
 				}
+			} else if (this.result && builtInFallback?.body) {
+				this.contentBox.addChild(new Text(`\n${builtInFallback.body}`, 0, 0));
 			} else if (this.result) {
 				// Has result but no custom renderResult
 				const output = this.getTextOutput();

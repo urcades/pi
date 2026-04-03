@@ -257,7 +257,7 @@ function createExtensionAPI(
 		},
 
 		registerProvider(name: string, config: ProviderConfig) {
-			runtime.pendingProviderRegistrations.push({ name, config });
+			runtime.pendingProviderRegistrations.push({ name, config, extensionPath: extension.path });
 		},
 
 		events: eventBus,

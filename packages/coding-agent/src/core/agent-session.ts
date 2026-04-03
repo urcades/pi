@@ -1895,14 +1895,11 @@ export class AgentSession {
 			return undefined;
 		};
 
-		const reservedBuiltins = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
-
 		const getCommands = (): SlashCommandInfo[] => {
 			const extensionCommands: SlashCommandInfo[] = runner
 				.getRegisteredCommandsWithPaths()
-				.filter(({ command }) => !reservedBuiltins.has(command.name))
 				.map(({ command, extensionPath }) => ({
-					name: command.name,
+					name: command.invocationName,
 					description: command.description,
 					source: "extension",
 					path: extensionPath,

@@ -10,6 +10,7 @@ import type { ResourceDiagnostic } from "../diagnostics.js";
 import type { KeyAction, KeybindingsConfig } from "../keybindings.js";
 import type { ModelRegistry } from "../model-registry.js";
 import type { SessionManager } from "../session-manager.js";
+import { BUILTIN_SLASH_COMMANDS } from "../slash-commands.js";
 import type {
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -35,6 +36,7 @@ import type {
 	MessageRenderer,
 	RegisteredCommand,
 	RegisteredTool,
+	ResolvedCommand,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
 	SessionBeforeCompactResult,
@@ -88,6 +90,8 @@ const buildBuiltinKeybindings = (effectiveKeybindings: Required<KeybindingsConfi
 	}
 	return builtinKeybindings;
 };
+
+const BUILTIN_COMMAND_NAMES = new Set(BUILTIN_SLASH_COMMANDS.map((command) => command.name));
 
 /** Combined result from all before_agent_start handlers */
 interface BeforeAgentStartCombinedResult {
@@ -260,8 +264,17 @@ export class ExtensionRunner {
 		this.getSystemPromptFn = contextActions.getSystemPrompt;
 
 		// Process provider registrations queued during extension loading
-		for (const { name, config } of this.runtime.pendingProviderRegistrations) {
-			this.modelRegistry.registerProvider(name, config);
+		for (const { name, config, extensionPath } of this.runtime.pendingProviderRegistrations) {
+			try {
+				this.modelRegistry.registerProvider(name, config);
+			} catch (error) {
+				this.emitError({
+					extensionPath,
+					event: "register_provider",
+					error: error instanceof Error ? error.message : String(error),
+					stack: error instanceof Error ? error.stack : undefined,
+				});
+			}
 		}
 		this.runtime.pendingProviderRegistrations = [];
 	}
@@ -421,49 +434,82 @@ export class ExtensionRunner {
 		return undefined;
 	}
 
-	getRegisteredCommands(reserved?: Set<string>): RegisteredCommand[] {
-		this.commandDiagnostics = [];
+	private resolveRegisteredCommands(
+		options: { logDiagnostics: boolean } = { logDiagnostics: true },
+	): Array<{ command: ResolvedCommand; extensionPath: string }> {
+		const pending: Array<{ command: RegisteredCommand; extensionPath: string }> = [];
+		const counts = new Map<string, number>();
 
-		const commands: RegisteredCommand[] = [];
 		for (const ext of this.extensions) {
 			for (const command of ext.commands.values()) {
-				if (reserved?.has(command.name)) {
-					const message = `Extension command '${command.name}' from ${ext.path} conflicts with built-in commands. Skipping.`;
-					this.commandDiagnostics.push({ type: "warning", message, path: ext.path });
-					if (!this.hasUI()) {
-						console.warn(message);
-					}
-					continue;
-				}
-
-				commands.push(command);
+				pending.push({ command, extensionPath: ext.path });
+				counts.set(command.name, (counts.get(command.name) ?? 0) + 1);
 			}
 		}
-		return commands;
+
+		const seen = new Map<string, number>();
+		const takenInvocationNames = new Set(BUILTIN_COMMAND_NAMES);
+		const diagnostics: ResourceDiagnostic[] = [];
+
+		const resolved = pending.map(({ command, extensionPath }) => {
+			const occurrence = (seen.get(command.name) ?? 0) + 1;
+			seen.set(command.name, occurrence);
+
+			const builtInConflict = BUILTIN_COMMAND_NAMES.has(command.name);
+			let invocationName =
+				builtInConflict || (counts.get(command.name) ?? 0) > 1
+					? `${command.name}:${occurrence + (builtInConflict ? 1 : 0)}`
+					: command.name;
+
+			while (takenInvocationNames.has(invocationName)) {
+				const suffix = Number.parseInt(invocationName.slice(invocationName.lastIndexOf(":") + 1), 10);
+				const nextSuffix = Number.isFinite(suffix) ? suffix + 1 : 2;
+				invocationName = `${command.name}:${nextSuffix}`;
+			}
+
+			takenInvocationNames.add(invocationName);
+
+			if (builtInConflict) {
+				diagnostics.push({
+					type: "warning",
+					message: `Extension command '/${command.name}' from ${extensionPath} conflicts with a built-in command. Available as '/${invocationName}'.`,
+					path: extensionPath,
+				});
+			}
+
+			return {
+				command: {
+					...command,
+					invocationName,
+				},
+				extensionPath,
+			};
+		});
+
+		this.commandDiagnostics = diagnostics;
+		if (options.logDiagnostics && !this.hasUI()) {
+			for (const diagnostic of diagnostics) {
+				console.warn(diagnostic.message);
+			}
+		}
+		return resolved;
+	}
+
+	getRegisteredCommands(): ResolvedCommand[] {
+		return this.resolveRegisteredCommands().map(({ command }) => command);
 	}
 
 	getCommandDiagnostics(): ResourceDiagnostic[] {
 		return this.commandDiagnostics;
 	}
 
-	getRegisteredCommandsWithPaths(): Array<{ command: RegisteredCommand; extensionPath: string }> {
-		const result: Array<{ command: RegisteredCommand; extensionPath: string }> = [];
-		for (const ext of this.extensions) {
-			for (const command of ext.commands.values()) {
-				result.push({ command, extensionPath: ext.path });
-			}
-		}
-		return result;
+	getRegisteredCommandsWithPaths(): Array<{ command: ResolvedCommand; extensionPath: string }> {
+		return this.resolveRegisteredCommands();
 	}
 
-	getCommand(name: string): RegisteredCommand | undefined {
-		for (const ext of this.extensions) {
-			const command = ext.commands.get(name);
-			if (command) {
-				return command;
-			}
-		}
-		return undefined;
+	getCommand(name: string): ResolvedCommand | undefined {
+		return this.resolveRegisteredCommands({ logDiagnostics: false }).find((entry) => entry.command.invocationName === name)
+			?.command;
 	}
 
 	/**

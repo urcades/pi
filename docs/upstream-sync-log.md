@@ -8,6 +8,171 @@ Use one section per sync cycle.
 
 ### Metadata
 
+- Sync branch: `sync/upstream-20260403-r5`
+- Operator: `codex-gpt-5`
+- Started at: `2026-04-03`
+- Completed at: `2026-04-03`
+- Base branch/commit: `main @ 103d3634`
+- Upstream window:
+  - from: `103d3634` (post-R4 local main)
+  - to: `upstream/main @ 84d13406`
+
+### Preflight Snapshot
+
+- `git status --short --branch` summary: clean working tree on `main`; branched to `sync/upstream-20260403-r5` before edits.
+- `git worktree list --verbose` summary: one live worktree only.
+- `git log --oneline main..HEAD` / `git diff --name-status main..HEAD`: empty before R5 work began.
+- Notable local divergence notes:
+  - preserve minimized fork shape; do not reintroduce removed docs/examples/tests/packages
+  - provider scope remains limited to Anthropic, OpenAI, OpenAI Codex, and OpenAI-compatible flows already central to this fork
+  - treat already-present local equivalents as `audit-only` and do not re-port them
+
+### Commit/Feature Triage
+
+| Area | Classification | Decision | Notes |
+| --- | --- | --- | --- |
+| tranche A startup / extension correctness / footer stability | mixed | applied/audited | ported only the missing runtime deltas; pre-existing equivalents stayed audit-only |
+| tranche B platform / desktop polish | mixed | applied/partial | imported runtime behavior only; skipped absent local `src/bun/cli.ts` and upstream-only test scaffolding |
+| tranche C broader TUI polish | manual | applied | imported only behavior fixes for width, watcher reload, and wide-char rendering |
+| `617f1870` reuse initial resource loader | audit | already present | local startup already reuses the first resource loader instead of rebuilding it |
+| `58f8fcd8` retry sync lock acquisition | audit | already present | local auth/settings storage already retries lock acquisition on startup |
+| `e0f85a3b` invalid provider registrations | split manual | partial | provider registration isolation ported; upstream footer-side effects did not map 1:1 and were superseded by the local `2d05e872` footer port |
+| `31c7406a` suppress process warnings | partial manual | partial | applied to `src/cli.ts`; upstream `src/bun/cli.ts` does not exist in this fork |
+
+### Path Mapping Decisions
+
+- Upstream runtime paths under `packages/coding-agent/src/**` and `packages/tui/src/**` continue to map directly where those files still exist in the fork.
+- Upstream fixes that assume broader editor, extension-host, or platform surface are ported behaviorally only when the narrower local shape can absorb them safely.
+- Docs/examples/tests and removed packages remain out of scope even when adjacent runtime commits are imported manually.
+
+### Integration Batches
+
+#### Tranche A
+
+- Target window: `post-R4 startup / extension correctness / footer stability backlog`
+- Included commits:
+  - `1ba899f6`
+  - `e0f85a3b` (behavioral partial port)
+  - `a8a58ff2`
+  - `80ca61a1`
+- Audit-only commits:
+  - `617f1870`
+  - `58f8fcd8`
+- Integration mode: mixed manual port + audit
+- Files touched:
+  - `docs/upstream-sync-log.md`
+  - `packages/coding-agent/src/core/agent-session.ts`
+  - `packages/coding-agent/src/core/extensions/loader.ts`
+  - `packages/coding-agent/src/core/extensions/runner.ts`
+  - `packages/coding-agent/src/core/extensions/types.ts`
+  - `packages/coding-agent/src/core/model-registry.ts`
+  - `packages/coding-agent/src/core/resource-loader.ts`
+  - `packages/coding-agent/src/main.ts`
+  - `packages/coding-agent/src/modes/interactive/components/tool-execution.ts`
+  - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+  - `packages/coding-agent/src/modes/rpc/rpc-mode.ts`
+- Outcome: applied/audited
+- Notes:
+  - duplicate extension slash commands now resolve deterministically via suffixed invocation names
+  - built-in tool overrides now fall back to built-in formatting for whichever render half the override does not provide
+  - invalid extension provider registrations now fail in isolation instead of poisoning the full registration pass
+  - interactive UI startup now completes before `session_start`
+
+#### Tranche B
+
+- Target window: `platform / desktop polish backlog`
+- Included commits:
+  - `25b185f3`
+  - `a0396e1f`
+  - `31c7406a` (partial local port only)
+  - `2d05e872`
+- Integration mode: mixed manual port + behavioral adaptation
+- Files touched:
+  - `packages/coding-agent/src/cli.ts`
+  - `packages/coding-agent/src/core/exec.ts`
+  - `packages/coding-agent/src/core/footer-data-provider.ts`
+  - `packages/coding-agent/src/core/tools/bash.ts`
+  - `packages/coding-agent/src/utils/child-process.ts`
+  - `packages/coding-agent/src/utils/clipboard.ts`
+- Outcome: applied
+- Notes:
+  - child-process waits now avoid inherited stdio hangs by explicitly draining and destroying lingering pipes
+  - clipboard fallbacks stay quiet in headless sessions instead of surfacing noisy errors
+  - CLI warning suppression was applied only where the local fork has a matching entrypoint
+  - footer branch detection now handles reftable repos and worktree `.git` indirection correctly
+
+#### Tranche C
+
+- Target window: `broader TUI polish backlog`
+- Included commits:
+  - `77db2e4c`
+  - `3620adb3`
+  - `48e4bd94`
+  - `15e0957b`
+  - `aaeb2d82`
+- Integration mode: manual port
+- Files touched:
+  - `packages/coding-agent/src/modes/interactive/theme/theme.ts`
+  - `packages/tui/src/components/editor.ts`
+  - `packages/tui/src/components/input.ts`
+  - `packages/tui/src/utils.ts`
+- Outcome: applied
+- Notes:
+  - large-string truncation now streams width accounting instead of rescanning full strings
+  - theme reload uses a debounced directory watcher and keeps the last good theme during transient file states
+  - editor/input rendering now handles wide characters and wrap boundaries without overrunning the visible column budget
+
+### Verification Results
+
+- `npm run check`: passed
+- `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+- `./scripts/rebuild-local-pi.sh`: passed
+- `pi --version`: passed (`0.52.12`)
+- `command -v pi`: `/Users/edouard/Developer/Organelle/pi/packages/coding-agent/dist/cli.js`
+- `git diff --check`: clean
+- Targeted smokes: passed
+  - duplicate slash-command disambiguation resolved `/foo`, `/foo:2`, and built-in collisions deterministically
+  - invalid provider registration isolation emitted extension-scoped errors and drained the queue cleanly
+  - two parallel `./scripts/pi-test.sh --version` launches completed without false lockfile failures
+  - headless clipboard probe stayed quiet while still producing OSC52 output
+  - reftable footer probe tracked branch changes correctly
+  - theme watcher probe reloaded a custom theme after an on-disk edit
+  - wide-char editor/input and large-string truncation probes stayed width-correct
+  - built-in tool override fallback preserved the custom-renderer path while still filling missing render halves from built-in output
+- Risk note:
+  - `npm run check` did not catch an intermediate duplicate-helper regression in `packages/tui/src/utils.ts`; the runtime probes and `./scripts/pi-test.sh --version` did catch it, so final verification for TUI-heavy sync work should keep both compile-time and runtime gates
+
+### Deferred Items
+
+| Commit/Area | Why deferred | Follow-up trigger |
+| --- | --- | --- |
+| `7c92bb81` | example-only | ignore unless this fork starts carrying examples again |
+| `bd2c3ab6` | larger editor feature-style change than this pass should absorb | revisit only if the fork intentionally broadens editor behavior |
+| `9f9277cc`, `d86122cb`, `e2f29b05`, `de022ceb`, `ef6af5eb`, `b5f425ad`, `20a57e75` | architecture / extension-surface growth outside minimized-fork scope | consider only if the fork intentionally broadens runtime/extension APIs |
+| net-new provider families and broader runtime-host / extension architecture work | out of R5 scope and not justified by the fork’s first-class surface | revisit only if this fork expands provider/runtime surface intentionally |
+
+### Final Summary
+
+- What was imported:
+  - deterministic duplicate slash-command resolution and safer extension-provider registration handling
+  - built-in tool override fallback to built-in renderers for missing custom-renderer halves
+  - interactive startup ordering, reftable-aware footer branch detection, quieter clipboard fallbacks, and safer child-process waiting
+  - large-string truncation, custom-theme live reload, and wide-character editor/input stability fixes
+- What was intentionally skipped:
+  - example-only work
+  - broader editor feature churn
+  - net-new providers and runtime/extension architecture growth
+  - removed docs/examples/tests/packages
+- Follow-up tasks:
+  - if another sync pass is needed, start by treating `617f1870` and `58f8fcd8` as already landed locally
+  - keep runtime probes in the verification gate for any future TUI-heavy sync work
+
+---
+
+## Sync Cycle: 2026-04-03
+
+### Metadata
+
 - Sync branch: `sync/upstream-20260403-r4`
 - Operator: `codex-gpt-5`
 - Started at: `2026-04-03`

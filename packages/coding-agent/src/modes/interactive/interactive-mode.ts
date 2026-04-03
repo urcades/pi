@@ -332,14 +332,13 @@ export class InteractiveMode {
 		}));
 
 		// Convert extension commands to SlashCommand format
-		const builtinCommandNames = new Set(slashCommands.map((c) => c.name));
-		const extensionCommands: SlashCommand[] = (
-			this.session.extensionRunner?.getRegisteredCommands(builtinCommandNames) ?? []
-		).map((cmd) => ({
-			name: cmd.name,
-			description: cmd.description ?? "(extension command)",
-			getArgumentCompletions: cmd.getArgumentCompletions,
-		}));
+		const extensionCommands: SlashCommand[] = (this.session.extensionRunner?.getRegisteredCommands() ?? []).map(
+			(cmd) => ({
+				name: cmd.invocationName,
+				description: cmd.description ?? "(extension command)",
+				getArgumentCompletions: cmd.getArgumentCompletions,
+			}),
+		);
 
 		// Build skill commands from session.skills (if enabled)
 		this.skillCommands.clear();
@@ -459,15 +458,15 @@ export class InteractiveMode {
 		this.setupKeyHandlers();
 		this.setupEditorSubmitHandler();
 
+		// Start the UI before initializing extensions so session_start handlers can use interactive UI.
+		this.ui.start();
+		this.isInitialized = true;
+
 		// Initialize extensions first so resources are shown before messages
 		await this.initExtensions();
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
-
-		// Start the UI
-		this.ui.start();
-		this.isInitialized = true;
 
 		// Set terminal title
 		this.updateTerminalTitle();
