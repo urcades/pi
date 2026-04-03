@@ -1,11 +1,21 @@
 import { execSync, spawn } from "child_process";
 import { platform } from "os";
+import { clipboard } from "./clipboard-native.js";
 import { isWaylandSession } from "./clipboard-image.js";
 
-export function copyToClipboard(text: string): void {
+export async function copyToClipboard(text: string): Promise<void> {
 	// Always emit OSC 52 - works over SSH/mosh, harmless locally
 	const encoded = Buffer.from(text).toString("base64");
 	process.stdout.write(`\x1b]52;c;${encoded}\x07`);
+
+	try {
+		if (clipboard) {
+			await clipboard.setText(text);
+			return;
+		}
+	} catch {
+		// Fall through to platform-specific clipboard tools.
+	}
 
 	// Also try native tools (best effort for local sessions)
 	const p = platform();

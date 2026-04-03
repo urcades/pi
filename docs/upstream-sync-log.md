@@ -4,6 +4,159 @@ Use one section per sync cycle.
 
 ---
 
+## Sync Cycle: 2026-04-03
+
+### Metadata
+
+- Sync branch: `sync/upstream-20260403-r4`
+- Operator: `codex-gpt-5`
+- Started at: `2026-04-03`
+- Completed at: `2026-04-03`
+- Base branch/commit: `main @ ddf9d701`
+- Upstream window:
+  - from: `ddf9d701` (post-R3 local main)
+  - to: `upstream/main @ 84d13406`
+
+### Preflight Snapshot
+
+- `git status --short` summary: clean working tree on `main`; branched to `sync/upstream-20260403-r4` before edits.
+- Notable local divergence notes:
+  - preserve minimized fork shape; do not reintroduce removed docs/examples/tests/packages
+  - provider scope remains limited to Anthropic, OpenAI, OpenAI Codex, and OpenAI-compatible flows already central to this fork
+  - upstream advanced to `v0.65.0`, but this pass stays bounded to the approved R4 workflow/runtime polish scope rather than widening into new architecture
+
+### Commit/Feature Triage
+
+| Area | Classification | Decision | Notes |
+| --- | --- | --- | --- |
+| tranche A edit/write ordering + compaction safety | manual | applied | queued same-file `edit`/`write`, truncated tool-result compaction input, and guarded stale pre-compaction threshold checks |
+| tranche B workflow/session/runtime polish | mixed | applied/audited | most JSONL/export/runtime polish was already present locally; remaining delta was small and minimization-safe |
+| tranche C first-class provider/runtime fixes | mixed | applied/audited | provider scope stayed limited to Anthropic/OpenAI/Codex/OpenAI-compatible flows; several fixes were already present |
+| `0f9db44a` large edit redraw | audit | no-op | upstream fix targets newer edit preview rendering not present in this fork’s smaller edit tool |
+| `fa26f15e` session-switch scrollback clearing | audit | already present | local `packages/tui/src/tui.ts` already clears screen before dropping scrollback |
+
+### Path Mapping Decisions
+
+- Upstream runtime paths under `packages/coding-agent/src/**`, `packages/tui/src/**`, and `packages/ai/src/**` continue to map directly where those files still exist in the fork.
+- Upstream commits that depend on newer edit-tool surface area are ported behaviorally only, if at all; this fork keeps its older, smaller edit tool shape unless the fix materially requires more.
+- Docs/examples/tests and removed packages remain out of scope even when adjacent runtime commits are imported manually.
+
+### Integration Batches
+
+#### Tranche A
+
+- Target window: `post-r3 .. workflow/runtime polish backlog`
+- Included commits:
+  - `d38ad0cd`
+  - `74a46fc7`
+  - `c950c692`
+  - `d1a17bba` (behavioral partial port only)
+- Integration mode: manual port
+- Files touched:
+  - `docs/upstream-sync-log.md`
+  - `packages/coding-agent/src/core/tools/file-mutation-queue.ts`
+  - `packages/coding-agent/src/core/tools/edit.ts`
+  - `packages/coding-agent/src/core/tools/write.ts`
+  - `packages/coding-agent/src/core/compaction/utils.ts`
+  - `packages/coding-agent/src/core/agent-session.ts`
+- Outcome: applied
+
+#### Tranche B
+
+- Target window: `workflow/session/runtime polish`
+- Included commits:
+  - `fd385ecf`
+  - `970774ec`
+  - `84655e81`
+  - `fa26f15e` (audit only)
+  - `ce15f407`
+  - `4f81c3c2`
+  - `8a0529ed`
+- Integration mode: mixed manual port + audit
+- Files touched:
+  - `packages/coding-agent/src/core/slash-commands.ts`
+  - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+  - `packages/coding-agent/src/modes/interactive/components/model-selector.ts`
+  - `packages/coding-agent/src/core/extensions/loader.ts`
+  - `packages/coding-agent/src/core/package-manager.ts`
+  - `packages/coding-agent/src/core/resolve-config-value.ts`
+  - `packages/coding-agent/src/core/tools/find.ts`
+  - `packages/coding-agent/src/utils/clipboard.ts`
+  - `packages/coding-agent/src/utils/clipboard-native.ts`
+  - `packages/tui/src/autocomplete.ts`
+- Outcome: applied/audited
+- Notes:
+  - JSONL export/import, async `/copy`, extension alias preference, native clipboard text copy, and most Windows path handling were already present in the branch-local R4 sweep and verified rather than re-ported.
+  - The remaining explicit local delta in this turn was the scoped fuzzy autocomplete normalization fix for backslash-separated queries.
+
+#### Tranche C
+
+- Target window: `first-class provider/runtime polish`
+- Included commits:
+  - `ad48b52d`
+  - `e645995a` (simplified local-equivalent port)
+  - `dd53eb56`
+  - `b2548ce4`
+  - `45354153`
+  - `a79ca411`
+- Integration mode: mixed manual port + audit
+- Files touched:
+  - `packages/ai/src/types.ts`
+  - `packages/ai/src/providers/anthropic.ts`
+  - `packages/ai/src/providers/openai-completions.ts`
+  - `packages/ai/src/providers/openai-responses-shared.ts`
+  - `packages/ai/src/providers/openai-codex-responses.ts`
+  - `packages/ai/src/utils/oauth/anthropic.ts`
+- Outcome: applied/audited
+- Notes:
+  - `39b1bf7b` was already present locally (`request_too_large` overflow detection), so it remained audit-only.
+  - Anthropic OAuth stayed in the fork’s smaller manual flow shape while still picking up the relevant token endpoint / redirect parsing fixes.
+
+### Verification Results
+
+- `npm run check`: passed
+- `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+- `./scripts/rebuild-local-pi.sh`: passed
+- `pi --version`: passed (`0.52.12`)
+- `command -v pi`: `/Users/edouard/Developer/Organelle/pi/packages/coding-agent/dist/cli.js`
+- `git diff --check`: clean
+- Queue regression smoke: passed
+  - concurrent `write` + `edit` against the same new file completed in order and produced the expected final content
+- Autocomplete normalization smoke: passed
+  - helper-level probe confirmed scoped fuzzy queries and display paths normalize backslashes to forward slashes
+- Not fully exercised end-to-end in this turn:
+  - live-provider Codex / Anthropic transport flows
+  - full interactive `/export` + `/import` round-trip through tmux
+  - desktop-native clipboard write on a real GUI session
+
+### Deferred Items
+
+| Commit/Area | Why deferred | Follow-up trigger |
+| --- | --- | --- |
+| `0f9db44a` | local edit tool does not have the upstream preview rendering surface that the fix targeted | only revisit if the edit tool grows that preview path later |
+| `e2f29b05`, `de022ceb`, `d86122cb`, `ef6af5eb`, `b5f425ad`, `20a57e75` | architecture / extension-surface growth outside minimized-fork scope | consider only if the fork intentionally broadens runtime/extension APIs |
+| net-new provider families and broader model/registry churn | out of R4 scope and not justified by the fork’s first-class provider surface | revisit only if this fork adopts those providers as first-class |
+
+### Final Summary
+
+- What was imported:
+  - same-file mutation queueing for `edit` / `write`
+  - compaction summarization truncation and stale pre-compaction threshold guarding
+  - bounded workflow/runtime polish already accumulated on the branch (`/import`, JSONL export/import, async `/copy`, scoped model refresh, extension alias preference, Windows path normalization)
+  - first-class provider/runtime polish already accumulated on the branch (response IDs, Responses tool-call ID normalization, `choice.usage` fallback, unknown `finish_reason` handling, Codex SSE/WS header split, Anthropic OAuth parsing/token endpoint updates)
+- What was intentionally skipped:
+  - upstream-only edit preview redraw work that does not map to this fork
+  - net-new providers and broader runtime/extension architecture changes
+  - removed docs/examples/tests/packages
+- Risk notes:
+  - several R4 items were already present in the branch-local sweep before this turn’s final verification, so this cycle mixed fresh edits with audit/confirmation work
+  - the branch is compile-clean and rebuilt locally, but not every provider-specific live flow was exercised against a real authenticated backend in this turn
+- Follow-up tasks:
+  - run one authenticated tmux smoke for `/export ...jsonl` then `/import ...jsonl`
+  - run one authenticated Codex transport regression probe if Codex websocket behavior is still a concern
+
+---
+
 ## Sync Cycle: 2026-04-02
 
 ### Metadata

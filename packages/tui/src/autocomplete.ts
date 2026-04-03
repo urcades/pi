@@ -507,13 +507,14 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	}
 
 	private resolveScopedFuzzyQuery(rawQuery: string): { baseDir: string; query: string; displayBase: string } | null {
-		const slashIndex = rawQuery.lastIndexOf("/");
+		const normalizedQuery = toDisplayPath(rawQuery);
+		const slashIndex = normalizedQuery.lastIndexOf("/");
 		if (slashIndex === -1) {
 			return null;
 		}
 
-		const displayBase = rawQuery.slice(0, slashIndex + 1);
-		const query = rawQuery.slice(slashIndex + 1);
+		const displayBase = normalizedQuery.slice(0, slashIndex + 1);
+		const query = normalizedQuery.slice(slashIndex + 1);
 
 		let baseDir: string;
 		if (displayBase.startsWith("~/")) {
@@ -536,10 +537,11 @@ export class CombinedAutocompleteProvider implements AutocompleteProvider {
 	}
 
 	private scopedPathForDisplay(displayBase: string, relativePath: string): string {
+		const normalizedRelativePath = toDisplayPath(relativePath);
 		if (displayBase === "/") {
-			return `/${relativePath}`;
+			return `/${normalizedRelativePath}`;
 		}
-		return `${displayBase}${relativePath}`;
+		return `${toDisplayPath(displayBase)}${normalizedRelativePath}`;
 	}
 
 	// Get file/directory suggestions for a given path prefix

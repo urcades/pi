@@ -58,16 +58,26 @@ function getAliases(): Record<string, string> {
 
 	const __dirname = path.dirname(fileURLToPath(import.meta.url));
 	const packageIndex = path.resolve(__dirname, "../..", "index.js");
-	const agentCoreIndex = path.resolve(__dirname, "..", "agent-core", "index.js");
 
 	const typeboxEntry = require.resolve("@sinclair/typebox");
 	const typeboxRoot = typeboxEntry.replace(/\/build\/cjs\/index\.js$/, "");
+	const packagesRoot = path.resolve(__dirname, "../../../../");
+	const resolveWorkspaceOrImport = (workspaceRelativePath: string, specifier: string): string => {
+		const workspacePath = path.join(packagesRoot, workspaceRelativePath);
+		if (fs.existsSync(workspacePath)) {
+			return workspacePath;
+		}
+		return fileURLToPath(import.meta.resolve(specifier));
+	};
 
 	_aliases = {
 		"@mariozechner/pi-coding-agent": packageIndex,
-		"@mariozechner/pi-agent-core": agentCoreIndex,
-		"@mariozechner/pi-tui": require.resolve("@mariozechner/pi-tui"),
-		"@mariozechner/pi-ai": require.resolve("@mariozechner/pi-ai"),
+		"@mariozechner/pi-agent-core": resolveWorkspaceOrImport(
+			"coding-agent/dist/core/agent-core/index.js",
+			"@mariozechner/pi-agent-core",
+		),
+		"@mariozechner/pi-tui": resolveWorkspaceOrImport("tui/dist/index.js", "@mariozechner/pi-tui"),
+		"@mariozechner/pi-ai": resolveWorkspaceOrImport("ai/dist/index.js", "@mariozechner/pi-ai"),
 		"@sinclair/typebox": typeboxRoot,
 	};
 

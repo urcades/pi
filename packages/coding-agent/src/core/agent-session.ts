@@ -13,8 +13,8 @@
  * Modes use this class and add their own I/O layer on top.
  */
 
-import { readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import type {
 	Agent,
 	AgentEvent,
@@ -73,8 +73,13 @@ import type { BashExecutionMessage, CustomMessage } from "./messages.js";
 import type { ModelRegistry } from "./model-registry.js";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.js";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.js";
-import type { BranchSummaryEntry, CompactionEntry, SessionManager } from "./session-manager.js";
-import { getLatestCompactionEntry } from "./session-manager.js";
+import type {
+	BranchSummaryEntry,
+	CompactionEntry,
+	SessionHeader,
+	SessionManager,
+} from "./session-manager.js";
+import { CURRENT_SESSION_VERSION, getLatestCompactionEntry } from "./session-manager.js";
 import type { SettingsManager } from "./settings-manager.js";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocation } from "./slash-commands.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -390,7 +395,6 @@ export class AgentSession {
 						attempt: this._retryAttempt,
 					});
 					this._retryAttempt = 0;
-					this._resolveRetry();
 				}
 			}
 		}
@@ -406,6 +410,7 @@ export class AgentSession {
 				if (didRetry) return; // Retry was initiated, don't proceed to compaction
 			}
 
+			this._resolveRetry();
 			await this._checkCompaction(msg);
 		}
 	};
@@ -1596,17 +1601,18 @@ export class AgentSession {
 		const sameModel =
 			this.model && assistantMessage.provider === this.model.provider && assistantMessage.model === this.model.id;
 
-		// Skip overflow check if the error is from before a compaction in the current path.
-		// This handles the case where an error was kept after compaction (in the "kept" region).
-		// The error shouldn't trigger another compaction since we already compacted.
-		// Example: opus fails → switch to codex → compact → switch back to opus → opus error
-		// is still in context but shouldn't trigger compaction again.
+		// Skip compaction checks if this assistant message is older than the latest
+		// compaction boundary. This prevents stale pre-compaction usage/errors
+		// from retriggering compaction on the first prompt after compaction.
 		const compactionEntry = getLatestCompactionEntry(this.sessionManager.getBranch());
-		const errorIsFromBeforeCompaction =
-			compactionEntry !== null && assistantMessage.timestamp < new Date(compactionEntry.timestamp).getTime();
+		const assistantIsFromBeforeCompaction =
+			compactionEntry !== null && assistantMessage.timestamp <= new Date(compactionEntry.timestamp).getTime();
+		if (assistantIsFromBeforeCompaction) {
+			return;
+		}
 
 		// Case 1: Overflow - LLM returned context overflow error
-		if (sameModel && !errorIsFromBeforeCompaction && isContextOverflow(assistantMessage, contextWindow)) {
+		if (sameModel && isContextOverflow(assistantMessage, contextWindow)) {
 			// Remove the error message from agent state (it IS saved to session for history,
 			// but we don't want it in context for the retry)
 			const messages = this.agent.state.messages;
@@ -1617,11 +1623,26 @@ export class AgentSession {
 			return;
 		}
 
-		// Case 2: Threshold - turn succeeded but context is getting large
-		// Skip if this was an error (non-overflow errors don't have usage data)
-		if (assistantMessage.stopReason === "error") return;
+		// Case 2: Threshold - context is getting large
+		// For error messages, estimate tokens from the current state.
+		let contextTokens: number;
+		if (assistantMessage.stopReason === "error") {
+			const messages = this.agent.state.messages;
+			const estimate = estimateContextTokens(messages);
+			if (estimate.lastUsageIndex === null) return;
 
-		const contextTokens = calculateContextTokens(assistantMessage.usage);
+			const usageMessage = messages[estimate.lastUsageIndex];
+			if (
+				compactionEntry &&
+				usageMessage.role === "assistant" &&
+				usageMessage.timestamp <= new Date(compactionEntry.timestamp).getTime()
+			) {
+				return;
+			}
+			contextTokens = estimate.tokens;
+		} else {
+			contextTokens = calculateContextTokens(assistantMessage.usage);
+		}
 		if (shouldCompact(contextTokens, contextWindow, settings)) {
 			await this._runAutoCompaction("threshold", false);
 		}
@@ -2831,6 +2852,54 @@ export class AgentSession {
 			themeName,
 			toolRenderer,
 		});
+	}
+
+	exportToJsonl(outputPath?: string): string {
+		const filePath = resolve(outputPath ?? `session-${new Date().toISOString().replace(/[:.]/g, "-")}.jsonl`);
+		const dir = dirname(filePath);
+		if (!existsSync(dir)) {
+			mkdirSync(dir, { recursive: true });
+		}
+
+		const header: SessionHeader = {
+			type: "session",
+			version: CURRENT_SESSION_VERSION,
+			id: this.sessionManager.getSessionId(),
+			timestamp: new Date().toISOString(),
+			cwd: this.sessionManager.getCwd(),
+		};
+
+		const branchEntries = this.sessionManager.getBranch();
+		const lines = [JSON.stringify(header)];
+
+		let prevId: string | null = null;
+		for (const entry of branchEntries) {
+			const linear = { ...entry, parentId: prevId };
+			lines.push(JSON.stringify(linear));
+			prevId = entry.id;
+		}
+
+		writeFileSync(filePath, `${lines.join("\n")}\n`);
+		return filePath;
+	}
+
+	async importFromJsonl(inputPath: string): Promise<boolean> {
+		const resolvedPath = resolve(inputPath);
+		if (!existsSync(resolvedPath)) {
+			throw new Error(`File not found: ${resolvedPath}`);
+		}
+
+		const sessionDir = this.sessionManager.getSessionDir();
+		if (!existsSync(sessionDir)) {
+			mkdirSync(sessionDir, { recursive: true });
+		}
+
+		const destPath = join(sessionDir, basename(resolvedPath));
+		if (resolve(destPath) !== resolvedPath) {
+			copyFileSync(resolvedPath, destPath);
+		}
+
+		return this.switchSession(destPath);
 	}
 
 	// =========================================================================

@@ -85,10 +85,20 @@ export function formatFileOperations(readFiles: string[], modifiedFiles: string[
 // Message Serialization
 // ============================================================================
 
+const TOOL_RESULT_MAX_CHARS = 2000;
+
+function truncateForSummary(text: string, maxChars: number): string {
+	if (text.length <= maxChars) return text;
+	const truncatedChars = text.length - maxChars;
+	return `${text.slice(0, maxChars)}\n\n[... ${truncatedChars} more characters truncated]`;
+}
+
 /**
  * Serialize LLM messages to text for summarization.
  * This prevents the model from treating it as a conversation to continue.
  * Call convertToLlm() first to handle custom message types.
+ *
+ * Tool results are truncated to keep summarization requests within reason.
  */
 export function serializeConversation(messages: Message[]): string {
 	const parts: string[] = [];
@@ -137,7 +147,7 @@ export function serializeConversation(messages: Message[]): string {
 				.map((c) => c.text)
 				.join("");
 			if (content) {
-				parts.push(`[Tool result]: ${content}`);
+				parts.push(`[Tool result]: ${truncateForSummary(content, TOOL_RESULT_MAX_CHARS)}`);
 			}
 		}
 	}

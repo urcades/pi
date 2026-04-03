@@ -123,33 +123,19 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 			};
 
 			for await (const chunk of openaiStream) {
+				// Each chunk in a streamed completion carries the same completion id.
+				output.responseId ||= chunk.id;
 				if (chunk.usage) {
-					const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens || 0;
-					const reasoningTokens = chunk.usage.completion_tokens_details?.reasoning_tokens || 0;
-					const input = (chunk.usage.prompt_tokens || 0) - cachedTokens;
-					const outputTokens = (chunk.usage.completion_tokens || 0) + reasoningTokens;
-					output.usage = {
-						// OpenAI includes cached tokens in prompt_tokens, so subtract to get non-cached input
-						input,
-						output: outputTokens,
-						cacheRead: cachedTokens,
-						cacheWrite: 0,
-						// Compute totalTokens ourselves since we add reasoning_tokens to output
-						// and some providers (e.g., Groq) don't include them in total_tokens
-						totalTokens: input + outputTokens + cachedTokens,
-						cost: {
-							input: 0,
-							output: 0,
-							cacheRead: 0,
-							cacheWrite: 0,
-							total: 0,
-						},
-					};
-					calculateCost(model, output.usage);
+					output.usage = parseChunkUsage(chunk.usage, model);
 				}
 
 				const choice = chunk.choices[0];
 				if (!choice) continue;
+
+				// Some OpenAI-compatible providers return usage on choice.usage instead.
+				if (!chunk.usage && (choice as any).usage) {
+					output.usage = parseChunkUsage((choice as any).usage, model);
+				}
 
 				if (choice.finish_reason) {
 					output.stopReason = mapStopReason(choice.finish_reason);
@@ -646,10 +632,36 @@ function convertTools(
 	}));
 }
 
-function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"]): StopReason {
+function parseChunkUsage(
+	rawUsage: {
+		prompt_tokens?: number;
+		completion_tokens?: number;
+		prompt_tokens_details?: { cached_tokens?: number };
+		completion_tokens_details?: { reasoning_tokens?: number };
+	},
+	model: Model<"openai-completions">,
+): AssistantMessage["usage"] {
+	const cachedTokens = rawUsage.prompt_tokens_details?.cached_tokens || 0;
+	const reasoningTokens = rawUsage.completion_tokens_details?.reasoning_tokens || 0;
+	const input = (rawUsage.prompt_tokens || 0) - cachedTokens;
+	const outputTokens = (rawUsage.completion_tokens || 0) + reasoningTokens;
+	const usage: AssistantMessage["usage"] = {
+		input,
+		output: outputTokens,
+		cacheRead: cachedTokens,
+		cacheWrite: 0,
+		totalTokens: input + outputTokens + cachedTokens,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	};
+	calculateCost(model, usage);
+	return usage;
+}
+
+function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"] | string): StopReason {
 	if (reason === null) return "stop";
 	switch (reason) {
 		case "stop":
+		case "end":
 			return "stop";
 		case "length":
 			return "length";
@@ -659,7 +671,7 @@ function mapStopReason(reason: ChatCompletionChunk.Choice["finish_reason"]): Sto
 		case "content_filter":
 			return "error";
 		default: {
-			const _exhaustive: never = reason;
+			const _exhaustive: never = reason as never;
 			throw new Error(`Unhandled stop reason: ${_exhaustive}`);
 		}
 	}

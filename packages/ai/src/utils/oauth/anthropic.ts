@@ -8,9 +8,31 @@ import type { OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface } fr
 const decode = (s: string) => atob(s);
 const CLIENT_ID = decode("OWQxYzI1MGEtZTYxYi00NGQ5LTg4ZWQtNTk0NGQxOTYyZjVl");
 const AUTHORIZE_URL = "https://claude.ai/oauth/authorize";
-const TOKEN_URL = "https://console.anthropic.com/v1/oauth/token";
-const REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback";
-const SCOPES = "org:create_api_key user:profile user:inference";
+const TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
+const REDIRECT_URI = "https://platform.claude.com/oauth/code/callback";
+const SCOPES =
+	"org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload";
+
+function parseAuthorizationInput(input: string): { code: string; state?: string } {
+	const trimmed = input.trim();
+	if (!trimmed) {
+		return { code: "" };
+	}
+
+	if (trimmed.includes("://")) {
+		try {
+			const url = new URL(trimmed);
+			const code = url.searchParams.get("code") ?? "";
+			const state = url.searchParams.get("state") ?? undefined;
+			return { code, state };
+		} catch {
+			// Fall through to plain code parsing.
+		}
+	}
+
+	const [code, state] = trimmed.split("#");
+	return { code, state };
+}
 
 /**
  * Login with Anthropic OAuth (device code flow)
@@ -41,11 +63,13 @@ export async function loginAnthropic(
 	// Notify caller with URL to open
 	onAuthUrl(authUrl);
 
-	// Wait for user to paste authorization code (format: code#state)
-	const authCode = await onPromptCode();
-	const splits = authCode.split("#");
-	const code = splits[0];
-	const state = splits[1];
+	// Wait for user to paste the authorization code or full redirect URL.
+	const authInput = await onPromptCode();
+	const { code, state } = parseAuthorizationInput(authInput);
+	if (state && state !== verifier) {
+		throw new Error("OAuth state mismatch");
+	}
+	const exchangeState = state ?? verifier;
 
 	// Exchange code for tokens
 	const tokenResponse = await fetch(TOKEN_URL, {
@@ -57,7 +81,7 @@ export async function loginAnthropic(
 			grant_type: "authorization_code",
 			client_id: CLIENT_ID,
 			code: code,
-			state: state,
+			state: exchangeState,
 			redirect_uri: REDIRECT_URI,
 			code_verifier: verifier,
 		}),
@@ -124,7 +148,11 @@ export const anthropicOAuthProvider: OAuthProviderInterface = {
 	async login(callbacks: OAuthLoginCallbacks): Promise<OAuthCredentials> {
 		return loginAnthropic(
 			(url) => callbacks.onAuth({ url }),
-			() => callbacks.onPrompt({ message: "Paste the authorization code:" }),
+			() =>
+				callbacks.onPrompt({
+					message: "Paste the authorization code or full redirect URL:",
+					placeholder: REDIRECT_URI,
+				}),
 		);
 	},
 
