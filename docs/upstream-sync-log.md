@@ -4,6 +4,166 @@ Use one section per sync cycle.
 
 ---
 
+## Sync Cycle: 2026-04-08
+
+### Metadata
+
+- Sync branch: `sync/upstream-20260408-r6`
+- Operator: `codex-gpt-5`
+- Started at: `2026-04-08`
+- Completed at: `2026-04-08`
+- Base branch/commit: `main @ 8ebe54d0`
+- Upstream window:
+  - from: `84d13406` (post-R5 audited upstream main)
+  - to: `upstream/main @ 3b7448d1`
+
+### Preflight Snapshot
+
+- `git status --short --branch` summary: clean working tree on `main`; branched to `sync/upstream-20260408-r6` before edits.
+- `git worktree list --verbose` summary: one live worktree only, on this repo.
+- `git log --oneline main..HEAD` / `git diff --name-status main..HEAD`: empty before R6 work began.
+- Notable local divergence notes:
+  - preserve minimized fork shape; do not reintroduce removed docs/examples/tests/packages
+  - provider scope remains limited to Anthropic, OpenAI, OpenAI Codex, and OpenAI-compatible flows already central to this fork
+  - include the resource precedence semantic change intentionally in this pass
+
+### Commit/Feature Triage
+
+| Area | Classification | Decision | Notes |
+| --- | --- | --- | --- |
+| tranche A runtime / CLI / session fixes | mixed | applied / partial | `127547f2`, `080af6fc`, `52d16d5a`, `72a43dc0`, `f10cce94`, and `61015830` landed; `377eca96` was partial because the upstream `scripts/session-transcripts.ts` path does not exist locally |
+| tranche B resource precedence / theme watcher | mixed | applied / audit | `a7acef92` and `5e5eeb96` landed; `71e44369` was audit-only in this fork |
+| tranche C provider / auth polish | mixed | applied / partial | `6044cabb` and `f05f4e8a` landed directly; `96916f2c` was ported as Anthropic warning behavior only, with Earendil churn intentionally skipped |
+| tranche D TUI stability | manual | applied | `6f5f37f8` and `3b7448d1` landed as direct local behavior ports |
+
+### Path Mapping Decisions
+
+- Upstream `packages/coding-agent/src/core/agent-session-runtime.ts` behavior from `080af6fc` mapped into this fork’s `packages/coding-agent/src/core/agent-session.ts`.
+- Upstream `packages/coding-agent/src/core/session-cwd.ts` does not exist locally, so this cycle added the local equivalent directly at `packages/coding-agent/src/core/session-cwd.ts`.
+- Upstream `377eca96` was split: the runtime `readline -> node:readline` changes landed, but the `scripts/session-transcripts.ts` piece stayed out because that script does not exist in this fork.
+- `71e44369` stayed audit-only because this fork no longer has the upstream `resource-loader` missing-path warning loops it fixed, and `parseSource()` already behaves compatibly for package-source classification.
+- `96916f2c` stayed intentionally narrow: only the Anthropic subscription-auth warning behavior landed. No Earendil assets, startup announcement component, or date-gated notice flow were imported.
+
+### Integration Batches
+
+#### Tranche A
+
+- Included commits:
+  - `127547f2`
+  - `080af6fc`
+  - `52d16d5a`
+  - `72a43dc0`
+  - `377eca96` (partial)
+  - `f10cce94`
+  - `61015830`
+- Outcome: applied / partial
+- Files touched:
+  - `packages/ai/src/cli.ts`
+  - `packages/coding-agent/src/cli.ts`
+  - `packages/coding-agent/src/core/agent-session.ts`
+  - `packages/coding-agent/src/core/bash-executor.ts`
+  - `packages/coding-agent/src/core/session-cwd.ts`
+  - `packages/coding-agent/src/core/session-manager.ts`
+  - `packages/coding-agent/src/core/tools/bash.ts`
+  - `packages/coding-agent/src/main.ts`
+  - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+  - `packages/coding-agent/src/modes/rpc/rpc-client.ts`
+  - `packages/coding-agent/src/modes/rpc/rpc-mode.ts`
+- Notes:
+  - piped stdin no longer forces print mode when `--json` / explicit mode is already selected
+  - missing session cwd now surfaces a recoverable fallback in interactive mode and a hard failure in non-interactive mode
+  - truncated bash output now persists to temp files even when truncation came from the rolling display buffer
+  - RPC child stderr is forwarded in real time
+  - runtime `readline` imports now use `node:readline`
+  - retryable error detection now includes “ended without” stream failures
+  - startup now exports `PI_CODING_AGENT=true`
+
+#### Tranche B
+
+- Included commits:
+  - `a7acef92`
+  - `5e5eeb96`
+- Audit-only commits:
+  - `71e44369`
+- Outcome: applied / audit
+- Files touched:
+  - `packages/coding-agent/src/core/package-manager.ts`
+  - `packages/coding-agent/src/core/resource-loader.ts`
+  - `packages/coding-agent/src/modes/interactive/theme/theme.ts`
+- Notes:
+  - resolved resource arrays are now sorted by explicit precedence before first-wins collision handling
+  - CLI-provided skills / prompts / themes are prepended instead of appended
+  - theme watcher now survives async `fs.watch` error events without crashing the session
+
+#### Tranche C
+
+- Included commits:
+  - `6044cabb`
+  - `f05f4e8a`
+  - `96916f2c` (warning-only partial)
+- Outcome: applied / partial
+- Files touched:
+  - `packages/ai/src/providers/openai-completions.ts`
+  - `packages/ai/src/types.ts`
+  - `packages/coding-agent/src/core/model-registry.ts`
+  - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+- Notes:
+  - OpenAI-compatible usage accounting now preserves `cache_write_tokens`
+  - OpenRouter routing type/schema now matches the fields the runtime already forwards
+  - Anthropic subscription auth now emits a one-time warning in the minimized interactive flow
+  - Earendil notice behavior remained out of scope
+
+#### Tranche D
+
+- Included commits:
+  - `6f5f37f8`
+  - `3b7448d1`
+- Outcome: applied
+- Files touched:
+  - `packages/tui/src/tui.ts`
+- Notes:
+  - render scheduling is now throttled under streaming load
+  - `Container.render()` no longer uses spread-push on large child arrays, avoiding stack overflow on deep / large transcripts
+
+Explicit defers for this cycle:
+
+- `4f7fc9de`
+- `ee2483cd`
+- `b48d8029`
+- `a9bd8045`
+- `6d2d03dc`
+- `cca5a3a1`
+- `82ecc130`
+- `773f91f4`
+- `70fb83fc`
+- `db31c16b`
+- release wrapper / generated model churn / docs-only commits
+
+### Verification Results
+
+- `npm run check`: passed after tranche A, tranche B, tranche C, tranche D, and the final post-fix rerun
+- `./scripts/pi-test.sh --version`: passed after tranche A, tranche B, tranche C, tranche D, and the final post-fix rerun; output remained `0.52.12`
+- `./scripts/rebuild-local-pi.sh`: passed after integration and again after the final `agent-session` retry-regex patch
+- `pi --version`: `0.52.12`
+- `realpath $(command -v pi)`: `/Users/edouard/Developer/Organelle/pi/packages/coding-agent/dist/cli.js`
+- `git diff --check`: passed
+- Targeted smokes:
+  - `npx tsx` large-array `Container.render()` probe returned `200000` lines without stack overflow
+  - `npx tsx` OpenRouterRouting type probe compiled with extended routing fields
+  - tmux startup capture rendered a stable interactive session after the TUI changes
+  - attempted piped `--print --json` smoke against local `ollama/gemma4:31b` failed with `Connection error`, so end-to-end JSON-output preservation was not validated against a live provider on this machine
+
+### Final Summary
+
+- R6 landed as a real post-R5 bugfix/polish sweep without widening the fork’s package or provider surface.
+- The high-signal changes were: missing-session-cwd recovery, print/json stdin preservation, durable truncated bash output capture, real-time RPC stderr forwarding, resource precedence correction, OpenRouter routing schema parity, Anthropic subscription-auth warning behavior, render throttling, and the large-array `Container.render()` stack fix.
+- `71e44369` was intentionally downgraded to audit-only, and `96916f2c` / `377eca96` were both split to keep only the runtime behavior that still fits this minimized fork.
+- Remaining limitations after this cycle:
+  - provider-dependent smokes were only partially exercised on this machine
+  - no Earendil/startup-announcement churn, new provider families, docs/examples/tests, or broader extension/runtime-host surface were imported
+
+---
+
 ## Sync Cycle: 2026-04-03
 
 ### Metadata

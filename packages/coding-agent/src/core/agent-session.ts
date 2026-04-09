@@ -73,13 +73,13 @@ import type { BashExecutionMessage, CustomMessage } from "./messages.js";
 import type { ModelRegistry } from "./model-registry.js";
 import { expandPromptTemplate, type PromptTemplate } from "./prompt-templates.js";
 import type { ResourceExtensionPaths, ResourceLoader } from "./resource-loader.js";
+import { assertSessionCwdExists } from "./session-cwd.js";
 import type {
 	BranchSummaryEntry,
 	CompactionEntry,
 	SessionHeader,
-	SessionManager,
 } from "./session-manager.js";
-import { CURRENT_SESSION_VERSION, getLatestCompactionEntry } from "./session-manager.js";
+import { CURRENT_SESSION_VERSION, getLatestCompactionEntry, SessionManager } from "./session-manager.js";
 import type { SettingsManager } from "./settings-manager.js";
 import { BUILTIN_SLASH_COMMANDS, type SlashCommandInfo, type SlashCommandLocation } from "./slash-commands.js";
 import { buildSystemPrompt } from "./system-prompt.js";
@@ -2124,8 +2124,9 @@ export class AgentSession {
 		if (isContextOverflow(message, contextWindow)) return false;
 
 		const err = message.errorMessage;
-		// Match: overloaded_error, rate limit, 429, 500, 502, 503, 504, service unavailable, connection errors, fetch failed, terminated, retry delay exceeded
-		return /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server error|internal error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|terminated|retry delay/i.test(
+		// Match: overloaded_error, rate limit, 429, 500, 502, 503, 504, service unavailable, connection errors,
+		// fetch failed, request ended without sending chunks, terminated, retry delay exceeded
+		return /overloaded|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server error|internal error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|ended without|terminated|retry delay/i.test(
 			err,
 		);
 	}
@@ -2361,7 +2362,7 @@ export class AgentSession {
 	 * Listeners are preserved and will continue receiving events.
 	 * @returns true if switch completed, false if cancelled by extension
 	 */
-	async switchSession(sessionPath: string): Promise<boolean> {
+	async switchSession(sessionPath: string, cwdOverride?: string): Promise<boolean> {
 		const previousSessionFile = this.sessionManager.getSessionFile();
 
 		// Emit session_before_switch event (can be cancelled)
@@ -2377,6 +2378,9 @@ export class AgentSession {
 			}
 		}
 
+		const openedSession = SessionManager.open(sessionPath, this.sessionManager.getSessionDir(), cwdOverride);
+		assertSessionCwdExists(openedSession, this.sessionManager.getCwd());
+
 		this._disconnectFromAgent();
 		await this.abort();
 		this._steeringMessages = [];
@@ -2384,7 +2388,7 @@ export class AgentSession {
 		this._pendingNextTurnMessages = [];
 
 		// Set new session
-		this.sessionManager.setSessionFile(sessionPath);
+		this.sessionManager.setSessionFile(sessionPath, cwdOverride);
 		this.agent.sessionId = this.sessionManager.getSessionId();
 
 		// Reload messages
@@ -2880,7 +2884,7 @@ export class AgentSession {
 		return filePath;
 	}
 
-	async importFromJsonl(inputPath: string): Promise<boolean> {
+	async importFromJsonl(inputPath: string, cwdOverride?: string): Promise<boolean> {
 		const resolvedPath = resolve(inputPath);
 		if (!existsSync(resolvedPath)) {
 			throw new Error(`File not found: ${resolvedPath}`);
@@ -2896,7 +2900,9 @@ export class AgentSession {
 			copyFileSync(resolvedPath, destPath);
 		}
 
-		return this.switchSession(destPath);
+		const importedSession = SessionManager.open(destPath, sessionDir, cwdOverride);
+		assertSessionCwdExists(importedSession, this.sessionManager.getCwd());
+		return this.switchSession(destPath, cwdOverride);
 	}
 
 	// =========================================================================

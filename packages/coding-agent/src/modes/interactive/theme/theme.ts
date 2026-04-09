@@ -785,6 +785,14 @@ function startThemeWatcher(): void {
 			}
 			scheduleReload();
 		});
+		themeWatcher.on("error", () => {
+			try {
+				themeWatcher?.close();
+			} catch {
+				// Ignore watcher shutdown errors.
+			}
+			themeWatcher = undefined;
+		});
 	} catch {
 		// Ignore errors starting watcher
 	}

@@ -76,6 +76,15 @@ export function executeBash(command: string, options?: BashExecutorOptions): Pro
 		let tempFilePath: string | undefined;
 		let tempFileStream: WriteStream | undefined;
 		let totalBytes = 0;
+		const ensureTempFile = () => {
+			if (tempFilePath) return;
+			const id = randomBytes(8).toString("hex");
+			tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
+			tempFileStream = createWriteStream(tempFilePath);
+			for (const chunk of outputChunks) {
+				tempFileStream.write(chunk);
+			}
+		};
 
 		// Handle abort signal
 		const abortHandler = () => {
@@ -108,14 +117,8 @@ export function executeBash(command: string, options?: BashExecutorOptions): Pro
 			const text = sanitizeBinaryOutput(stripAnsi(decoder.decode(data, { stream: true }))).replace(/\r/g, "");
 
 			// Start writing to temp file if exceeds threshold
-			if (totalBytes > DEFAULT_MAX_BYTES && !tempFilePath) {
-				const id = randomBytes(8).toString("hex");
-				tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
-				tempFileStream = createWriteStream(tempFilePath);
-				// Write already-buffered chunks to temp file
-				for (const chunk of outputChunks) {
-					tempFileStream.write(chunk);
-				}
+			if (totalBytes > DEFAULT_MAX_BYTES) {
+				ensureTempFile();
 			}
 
 			if (tempFileStream) {
@@ -152,6 +155,9 @@ export function executeBash(command: string, options?: BashExecutorOptions): Pro
 			// Combine buffered chunks for truncation (already sanitized)
 			const fullOutput = outputChunks.join("");
 			const truncationResult = truncateTail(fullOutput);
+			if (truncationResult.truncated) {
+				ensureTempFile();
+			}
 
 			// code === null means killed (cancelled)
 			const cancelled = code === null;
@@ -197,6 +203,15 @@ export async function executeBashWithOperations(
 	let tempFilePath: string | undefined;
 	let tempFileStream: WriteStream | undefined;
 	let totalBytes = 0;
+	const ensureTempFile = () => {
+		if (tempFilePath) return;
+		const id = randomBytes(8).toString("hex");
+		tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
+		tempFileStream = createWriteStream(tempFilePath);
+		for (const chunk of outputChunks) {
+			tempFileStream.write(chunk);
+		}
+	};
 
 	const decoder = new TextDecoder();
 
@@ -207,13 +222,8 @@ export async function executeBashWithOperations(
 		const text = sanitizeBinaryOutput(stripAnsi(decoder.decode(data, { stream: true }))).replace(/\r/g, "");
 
 		// Start writing to temp file if exceeds threshold
-		if (totalBytes > DEFAULT_MAX_BYTES && !tempFilePath) {
-			const id = randomBytes(8).toString("hex");
-			tempFilePath = join(tmpdir(), `pi-bash-${id}.log`);
-			tempFileStream = createWriteStream(tempFilePath);
-			for (const chunk of outputChunks) {
-				tempFileStream.write(chunk);
-			}
+		if (totalBytes > DEFAULT_MAX_BYTES) {
+			ensureTempFile();
 		}
 
 		if (tempFileStream) {
@@ -246,6 +256,9 @@ export async function executeBashWithOperations(
 
 		const fullOutput = outputChunks.join("");
 		const truncationResult = truncateTail(fullOutput);
+		if (truncationResult.truncated) {
+			ensureTempFile();
+		}
 		const cancelled = options?.signal?.aborted ?? false;
 
 		return {
@@ -264,6 +277,9 @@ export async function executeBashWithOperations(
 		if (options?.signal?.aborted) {
 			const fullOutput = outputChunks.join("");
 			const truncationResult = truncateTail(fullOutput);
+			if (truncationResult.truncated) {
+				ensureTempFile();
+			}
 			return {
 				output: truncationResult.truncated ? truncationResult.content : fullOutput,
 				exitCode: undefined,

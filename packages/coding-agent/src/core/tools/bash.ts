@@ -193,18 +193,21 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 				let chunksBytes = 0;
 				// Keep more than we need so we have enough for truncation
 				const maxChunksBytes = DEFAULT_MAX_BYTES * 2;
+				const ensureTempFile = () => {
+					if (tempFilePath) return;
+					tempFilePath = getTempFilePath();
+					tempFileStream = createWriteStream(tempFilePath);
+					for (const chunk of chunks) {
+						tempFileStream.write(chunk);
+					}
+				};
 
 				const handleData = (data: Buffer) => {
 					totalBytes += data.length;
 
 					// Start writing to temp file once we exceed the threshold
-					if (totalBytes > DEFAULT_MAX_BYTES && !tempFilePath) {
-						tempFilePath = getTempFilePath();
-						tempFileStream = createWriteStream(tempFilePath);
-						// Write all buffered chunks to the file
-						for (const chunk of chunks) {
-							tempFileStream.write(chunk);
-						}
+					if (totalBytes > DEFAULT_MAX_BYTES) {
+						ensureTempFile();
 					}
 
 					// Write to temp file if we have one
@@ -227,6 +230,9 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 						const fullBuffer = Buffer.concat(chunks);
 						const fullText = fullBuffer.toString("utf-8");
 						const truncation = truncateTail(fullText);
+						if (truncation.truncated) {
+							ensureTempFile();
+						}
 						onUpdate({
 							content: [{ type: "text", text: truncation.content || "" }],
 							details: {
@@ -244,17 +250,19 @@ export function createBashTool(cwd: string, options?: BashToolOptions): AgentToo
 					env: spawnContext.env,
 				})
 					.then(({ exitCode }) => {
-						// Close temp file stream
-						if (tempFileStream) {
-							tempFileStream.end();
-						}
-
 						// Combine all buffered chunks
 						const fullBuffer = Buffer.concat(chunks);
 						const fullOutput = fullBuffer.toString("utf-8");
 
 						// Apply tail truncation
 						const truncation = truncateTail(fullOutput);
+						if (truncation.truncated) {
+							ensureTempFile();
+						}
+						// Close temp file stream
+						if (tempFileStream) {
+							tempFileStream.end();
+						}
 						let outputText = truncation.content || "(no output)";
 
 						// Build details with truncation info

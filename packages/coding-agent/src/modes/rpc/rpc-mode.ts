@@ -12,7 +12,7 @@
  */
 
 import * as crypto from "node:crypto";
-import * as readline from "readline";
+import * as readline from "node:readline";
 import type { AgentSession } from "../../core/agent-session.js";
 import type {
 	ExtensionUIContext,

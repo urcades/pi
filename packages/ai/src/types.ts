@@ -226,13 +226,48 @@ export interface OpenAIResponsesCompat {
 /**
  * OpenRouter provider routing preferences.
  * Controls which upstream providers OpenRouter routes requests to.
- * @see https://openrouter.ai/docs/provider-routing
+ * Sent as the `provider` field in the OpenRouter API request body.
+ * @see https://openrouter.ai/docs/guides/routing/provider-selection
  */
 export interface OpenRouterRouting {
-	/** List of provider slugs to exclusively use for this request (e.g., ["anthropic", "openai"]). */
-	only?: string[];
-	/** List of provider slugs to try in order (e.g., ["anthropic", "openai"]). */
+	allow_fallbacks?: boolean;
+	require_parameters?: boolean;
+	data_collection?: "deny" | "allow";
+	zdr?: boolean;
+	enforce_distillable_text?: boolean;
 	order?: string[];
+	only?: string[];
+	ignore?: string[];
+	quantizations?: string[];
+	sort?:
+		| string
+		| {
+				by?: string;
+				partition?: string | null;
+		  };
+	max_price?: {
+		prompt?: number | string;
+		completion?: number | string;
+		image?: number | string;
+		audio?: number | string;
+		request?: number | string;
+	};
+	preferred_min_throughput?:
+		| number
+		| {
+				p50?: number;
+				p75?: number;
+				p90?: number;
+				p99?: number;
+		  };
+	preferred_max_latency?:
+		| number
+		| {
+				p50?: number;
+				p75?: number;
+				p90?: number;
+				p99?: number;
+		  };
 }
 
 // Model interface for the unified model system

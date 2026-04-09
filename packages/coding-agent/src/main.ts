@@ -7,7 +7,7 @@
 
 import { type ImageContent, modelsAreEqual, supportsXhigh } from "@mariozechner/pi-ai";
 import chalk from "chalk";
-import { createInterface } from "readline";
+import { createInterface } from "node:readline";
 import { type Args, parseArgs, printHelp } from "./cli/args.js";
 import { selectConfig } from "./cli/config-selector.js";
 import { processFileArguments } from "./cli/file-processor.js";
@@ -23,6 +23,7 @@ import { ModelRegistry } from "./core/model-registry.js";
 import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.js";
 import { DefaultPackageManager } from "./core/package-manager.js";
 import { DefaultResourceLoader } from "./core/resource-loader.js";
+import { formatMissingSessionCwdPrompt, getMissingSessionCwdIssue } from "./core/session-cwd.js";
 import { type CreateAgentSessionOptions, createAgentSession } from "./core/sdk.js";
 import { SessionManager } from "./core/session-manager.js";
 import { SettingsManager } from "./core/settings-manager.js";
@@ -375,6 +376,33 @@ async function promptConfirm(message: string): Promise<boolean> {
 	});
 }
 
+async function resolveMissingSessionCwd(
+	sessionManager: SessionManager | undefined,
+	fallbackCwd: string,
+): Promise<SessionManager | undefined> {
+	if (!sessionManager) {
+		return sessionManager;
+	}
+
+	const issue = getMissingSessionCwdIssue(sessionManager, fallbackCwd);
+	if (!issue) {
+		return sessionManager;
+	}
+
+	if (!process.stdin.isTTY) {
+		console.error(chalk.red(formatMissingSessionCwdPrompt(issue)));
+		process.exit(1);
+	}
+
+	const confirmed = await promptConfirm(formatMissingSessionCwdPrompt(issue));
+	if (!confirmed) {
+		console.log(chalk.dim("Aborted."));
+		process.exit(0);
+	}
+
+	return SessionManager.open(issue.sessionFile!, sessionManager.getSessionDir(), issue.fallbackCwd);
+}
+
 function validateForkFlags(parsed: Args): void {
 	if (!parsed.fork) return;
 
@@ -672,8 +700,10 @@ export async function main(args: string[]) {
 	if (parsed.mode !== "rpc") {
 		const stdinContent = await readPipedStdin();
 		if (stdinContent !== undefined) {
-			// Force print mode since interactive mode requires a TTY for keyboard input
-			parsed.print = true;
+			// Force print mode only when stdin would otherwise start interactive TTY mode.
+			if (!parsed.print && parsed.mode === undefined) {
+				parsed.print = true;
+			}
 			// Prepend stdin content to messages
 			parsed.messages.unshift(stdinContent);
 		}
@@ -718,6 +748,7 @@ export async function main(args: string[]) {
 
 	// Create session manager based on CLI flags
 	let sessionManager = await createSessionManager(parsed, cwd, settingsManager);
+	sessionManager = await resolveMissingSessionCwd(sessionManager, cwd);
 
 	// Handle --resume: show session picker
 	if (parsed.resume) {
@@ -735,6 +766,7 @@ export async function main(args: string[]) {
 			process.exit(0);
 		}
 		sessionManager = SessionManager.open(selectedPath, effectiveSessionDir);
+		sessionManager = await resolveMissingSessionCwd(sessionManager, cwd);
 	}
 
 	const { options: sessionOptions, cliThinkingFromModel } = buildSessionOptions(

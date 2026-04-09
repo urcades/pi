@@ -91,6 +91,12 @@ interface ResourceAccumulator {
 	themes: Map<string, { metadata: PathMetadata; enabled: boolean }>;
 }
 
+function resourcePrecedenceRank(metadata: PathMetadata): number {
+	if (metadata.origin === "package") return 4;
+	const scopeBase = metadata.scope === "project" ? 0 : 2;
+	return scopeBase + (metadata.source === "local" ? 0 : 1);
+}
+
 interface PackageFilter {
 	extensions?: string[];
 	skills?: string[];
@@ -1761,11 +1767,13 @@ export class DefaultPackageManager implements PackageManager {
 
 	private toResolvedPaths(accumulator: ResourceAccumulator): ResolvedPaths {
 		const toResolved = (entries: Map<string, { metadata: PathMetadata; enabled: boolean }>): ResolvedResource[] => {
-			return Array.from(entries.entries()).map(([path, { metadata, enabled }]) => ({
+			const resolved = Array.from(entries.entries()).map(([path, { metadata, enabled }]) => ({
 				path,
 				enabled,
 				metadata,
 			}));
+			resolved.sort((a, b) => resourcePrecedenceRank(a.metadata) - resourcePrecedenceRank(b.metadata));
+			return resolved;
 		};
 
 		return {
