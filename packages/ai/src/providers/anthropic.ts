@@ -407,6 +407,10 @@ function supportsAdaptiveThinking(modelId: string): boolean {
 	return modelId.includes("opus-4-6") || modelId.includes("opus-4.6");
 }
 
+function supportsTemperature(modelId: string): boolean {
+	return !modelId.includes("opus-4-7") && !modelId.includes("opus-4.7");
+}
+
 /**
  * Map ThinkingLevel to Anthropic effort levels for adaptive thinking
  */
@@ -453,12 +457,7 @@ export const streamSimpleAnthropic: StreamFunction<"anthropic-messages", SimpleS
 		} satisfies AnthropicOptions);
 	}
 
-	const adjusted = adjustMaxTokensForThinking(
-		base.maxTokens || 0,
-		model.maxTokens,
-		options.reasoning,
-		options.thinkingBudgets,
-	);
+	const adjusted = adjustMaxTokensForThinking(base.maxTokens, model.maxTokens, options.reasoning, options.thinkingBudgets);
 
 	return streamAnthropic(model, context, {
 		...base,
@@ -535,7 +534,7 @@ function buildParams(
 	const params: MessageCreateParamsStreaming = {
 		model: model.id,
 		messages: convertMessages(context.messages, model, isOAuthToken, cacheControl),
-		max_tokens: options?.maxTokens || (model.maxTokens / 3) | 0,
+		max_tokens: options?.maxTokens ?? model.maxTokens,
 		stream: true,
 	};
 
@@ -566,7 +565,7 @@ function buildParams(
 		];
 	}
 
-	if (options?.temperature !== undefined) {
+	if (options?.temperature !== undefined && !options?.thinkingEnabled && supportsTemperature(model.id)) {
 		params.temperature = options.temperature;
 	}
 

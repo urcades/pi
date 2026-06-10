@@ -36,6 +36,7 @@ const rgiEmojiRegex = /^\p{RGI_Emoji}$/v;
 // Cache for non-ASCII strings
 const WIDTH_CACHE_SIZE = 512;
 const widthCache = new Map<string, number>();
+const cjkBreakRegex = /\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Script=Hangul}/u;
 
 function isPrintableAscii(str: string): boolean {
 	for (let i = 0; i < str.length; i++) {
@@ -154,6 +155,10 @@ function finalizeTruncatedResult(
  * check to avoid running the RGI_Emoji regex unnecessarily.
  */
 function graphemeWidth(segment: string): number {
+	if (segment === "\t") {
+		return 3;
+	}
+
 	// Zero-width clusters
 	if (zeroWidthRegex.test(segment)) {
 		return 0;
@@ -505,8 +510,16 @@ function splitIntoTokensWithAnsi(text: string): string[] {
 	const tokens: string[] = [];
 	let current = "";
 	let pendingAnsi = ""; // ANSI codes waiting to be attached to next visible content
-	let inWhitespace = false;
+	let currentKind: "space" | "word" | null = null;
 	let i = 0;
+
+	const flushCurrent = () => {
+		if (current) {
+			tokens.push(current);
+			current = "";
+			currentKind = null;
+		}
+	};
 
 	while (i < text.length) {
 		const ansiResult = extractAnsiCode(text, i);
@@ -517,24 +530,39 @@ function splitIntoTokensWithAnsi(text: string): string[] {
 			continue;
 		}
 
-		const char = text[i];
-		const charIsSpace = char === " ";
-
-		if (charIsSpace !== inWhitespace && current) {
-			// Switching between whitespace and non-whitespace, push current token
-			tokens.push(current);
-			current = "";
+		let end = i;
+		while (end < text.length && !extractAnsiCode(text, end)) {
+			end++;
 		}
 
-		// Attach any pending ANSI codes to this visible character
-		if (pendingAnsi) {
-			current += pendingAnsi;
-			pendingAnsi = "";
+		for (const { segment } of segmenter.segment(text.slice(i, end))) {
+			const isWhitespace = segment === " ";
+			const kind = isWhitespace ? "space" : "word";
+
+			// CJK scripts do not use spaces between words, so every grapheme is
+			// a valid wrap opportunity.
+			if (!isWhitespace && cjkBreakRegex.test(segment)) {
+				flushCurrent();
+				tokens.push(pendingAnsi + segment);
+				pendingAnsi = "";
+				continue;
+			}
+
+			if (currentKind !== null && kind !== currentKind) {
+				flushCurrent();
+			}
+
+			// Attach any pending ANSI codes to this visible character
+			if (pendingAnsi) {
+				current += pendingAnsi;
+				pendingAnsi = "";
+			}
+
+			currentKind = kind;
+			current += segment;
 		}
 
-		inWhitespace = charIsSpace;
-		current += char;
-		i++;
+		i = end;
 	}
 
 	// Handle any remaining pending ANSI codes (attach to last token)
@@ -574,7 +602,10 @@ export function wrapTextWithAnsi(text: string, width: number): string[] {
 	for (const inputLine of inputLines) {
 		// Prepend active ANSI codes from previous lines (except for first line)
 		const prefix = result.length > 0 ? tracker.getActiveCodes() : "";
-		result.push(...wrapSingleLine(prefix + inputLine, width));
+		const wrapped = wrapSingleLine(prefix + inputLine, width);
+		for (const line of wrapped) {
+			result.push(line);
+		}
 		// Update tracker with codes from this line for next iteration
 		updateTrackerFromText(inputLine, tracker);
 	}
@@ -618,7 +649,9 @@ function wrapSingleLine(line: string, width: number): string[] {
 
 			// Break long token - breakLongWord handles its own resets
 			const broken = breakLongWord(token, width, tracker);
-			wrapped.push(...broken.slice(0, -1));
+			for (let i = 0; i < broken.length - 1; i++) {
+				wrapped.push(broken[i]!);
+			}
 			currentLine = broken[broken.length - 1];
 			currentVisibleLength = visibleWidth(currentLine);
 			continue;

@@ -18,6 +18,7 @@ import type {
 	StreamFunction,
 	StreamOptions,
 } from "../types.js";
+import { combineAbortSignals } from "../utils/abort-signals.js";
 import { AssistantMessageEventStream } from "../utils/event-stream.js";
 import { convertResponsesMessages, convertResponsesTools, processResponsesStream } from "./openai-responses-shared.js";
 import { buildBaseOptions, clampReasoning } from "./simple-options.js";
@@ -28,8 +29,9 @@ import { buildBaseOptions, clampReasoning } from "./simple-options.js";
 
 const DEFAULT_CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 const JWT_CLAIM_PATH = "https://api.openai.com/auth" as const;
-const MAX_RETRIES = 3;
+const DEFAULT_MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
+const DEFAULT_SSE_HEADER_TIMEOUT_MS = 10_000;
 const CODEX_TOOL_CALL_PROVIDERS = new Set(["openai", "openai-codex", "openrouter"]);
 
 const CODEX_RESPONSE_STATUSES = new Set<CodexResponseStatus>([
@@ -93,6 +95,38 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 			reject(new Error("Request was aborted"));
 		});
 	});
+}
+
+function createSSEHeaderTimeout(): { signal: AbortSignal; clear: () => void; error: () => Error | undefined } {
+	const controller = new AbortController();
+	let error: Error | undefined;
+	const timeout = setTimeout(() => {
+		error = new Error(`Codex SSE response headers timed out after ${DEFAULT_SSE_HEADER_TIMEOUT_MS}ms`);
+		controller.abort(error);
+	}, DEFAULT_SSE_HEADER_TIMEOUT_MS);
+	return {
+		signal: controller.signal,
+		clear: () => clearTimeout(timeout),
+		error: () => error,
+	};
+}
+
+function getRetryDelayMs(response: Response, attempt: number): number {
+	const retryAfterMs = response.headers.get("retry-after-ms");
+	if (retryAfterMs !== null) {
+		const millis = Number(retryAfterMs);
+		if (Number.isFinite(millis)) return Math.max(0, millis);
+	}
+
+	const retryAfter = response.headers.get("retry-after");
+	if (retryAfter) {
+		const seconds = Number(retryAfter);
+		if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+		const date = Date.parse(retryAfter);
+		if (!Number.isNaN(date)) return Math.max(0, date - Date.now());
+	}
+
+	return BASE_DELAY_MS * 2 ** attempt;
 }
 
 // ============================================================================
@@ -182,28 +216,38 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 			// Fetch with retry logic for rate limits and transient errors
 			let response: Response | undefined;
 			let lastError: Error | undefined;
+			const maxRetries = options?.maxRetries ?? DEFAULT_MAX_RETRIES;
 
-			for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+			for (let attempt = 0; attempt <= maxRetries; attempt++) {
 				if (options?.signal?.aborted) {
 					throw new Error("Request was aborted");
 				}
 
 				try {
-					response = await fetch(resolveCodexUrl(model.baseUrl), {
-						method: "POST",
-						headers: sseHeaders,
-						body: bodyJson,
-						signal: options?.signal,
-					});
+					const headerTimeout = createSSEHeaderTimeout();
+					const combinedSignal = combineAbortSignals([options?.signal, headerTimeout.signal]);
+					try {
+						response = await fetch(resolveCodexUrl(model.baseUrl), {
+							method: "POST",
+							headers: sseHeaders,
+							body: bodyJson,
+							signal: combinedSignal.signal,
+						});
+					} catch (error) {
+						const timeoutError = headerTimeout.error();
+						throw timeoutError && !options?.signal?.aborted ? timeoutError : error;
+					} finally {
+						combinedSignal.cleanup();
+						headerTimeout.clear();
+					}
 
 					if (response.ok) {
 						break;
 					}
 
 					const errorText = await response.text();
-					if (attempt < MAX_RETRIES && isRetryableError(response.status, errorText)) {
-						const delayMs = BASE_DELAY_MS * 2 ** attempt;
-						await sleep(delayMs, options?.signal);
+					if (attempt < maxRetries && isRetryableError(response.status, errorText)) {
+						await sleep(getRetryDelayMs(response, attempt), options?.signal);
 						continue;
 					}
 
@@ -222,7 +266,7 @@ export const streamOpenAICodexResponses: StreamFunction<"openai-codex-responses"
 					}
 					lastError = error instanceof Error ? error : new Error(String(error));
 					// Network errors are retryable
-					if (attempt < MAX_RETRIES && !lastError.message.includes("usage limit")) {
+					if (attempt < maxRetries && !lastError.message.includes("usage limit")) {
 						const delayMs = BASE_DELAY_MS * 2 ** attempt;
 						await sleep(delayMs, options?.signal);
 						continue;
@@ -295,7 +339,7 @@ function buildRequestBody(
 		model: model.id,
 		store: false,
 		stream: true,
-		instructions: context.systemPrompt,
+		instructions: context.systemPrompt || "You are a helpful assistant.",
 		input: messages,
 		text: { verbosity: options?.textVerbosity || "medium" },
 		include: ["reasoning.encrypted_content"],
@@ -892,7 +936,7 @@ function buildSSEHeaders(
 	headers.set("content-type", "application/json");
 
 	if (sessionId) {
-		headers.set("session_id", sessionId);
+		headers.set("session-id", sessionId);
 	}
 
 	return headers;
@@ -912,6 +956,6 @@ function buildWebSocketHeaders(
 	headers.delete("openai-beta");
 	headers.set("OpenAI-Beta", OPENAI_BETA_RESPONSES_WEBSOCKETS);
 	headers.set("x-client-request-id", requestId);
-	headers.set("session_id", requestId);
+	headers.set("session-id", requestId);
 	return headers;
 }

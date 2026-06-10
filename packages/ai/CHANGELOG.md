@@ -11,10 +11,17 @@
 
 - Simplified `OpenAICompletionsCompat` to core compatibility flags and OpenRouter routing only.
 - Regenerated the model catalog to include only Anthropic, OpenAI, OpenAI Codex, and OpenRouter models.
+- OpenAI Codex Responses now honors `maxRetries`, header retry hints, SSE header timeouts, and hyphenated session headers.
 
 ### Removed
 
 - Removed built-in provider implementations and OAuth providers outside the minimal provider set (including Azure OpenAI, Google providers, Bedrock, GitHub Copilot, Gemini CLI, and Antigravity).
+
+### Fixed
+
+- Fixed OpenAI-compatible streaming around interleaved tool calls, reasoning text, developer-role compatibility, and missing finish reasons.
+- Fixed Anthropic/OpenAI simple streaming to avoid implicit `maxTokens` caps unless callers set one.
+- Fixed context-overflow detection for more OpenAI-compatible proxy error messages.
 
 ## [0.52.12] - 2026-02-13
 

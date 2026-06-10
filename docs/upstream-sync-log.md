@@ -4,6 +4,133 @@ Use one section per sync cycle.
 
 ---
 
+## Sync Cycle: 2026-06-10
+
+### Metadata
+
+- Sync branch: `sync/upstream-20260610-v0791`
+- Worktree: `/Users/edouard/Developer/pi-upstream-sync-20260610-v0791`
+- Operator: `codex-gpt-5`
+- Started at: `2026-06-10`
+- Completed at: `2026-06-10`
+- Base branch/commit: `origin/main @ 4b6cf7a1`
+- Upstream window:
+  - from: `upstream/main @ 3b7448d1` (last selective-sync baseline recorded on `origin/main`)
+  - to: `v0.79.1 @ 28df940f`
+
+### Preflight Snapshot
+
+- Original checkout: `/Users/edouard/Developer/pi` was dirty on `codex/pi-rust`; left untouched.
+- Sync checkout: fresh worktree from `origin/main` on `sync/upstream-20260610-v0791`.
+- Baseline checks before edits:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+- Scope rule: selective retained-runtime imports only; no removed packages, docs/examples/tests, CI workflows, provider-family expansion, release wrappers, generated model churn, or dependency/package-lock churn.
+
+### Commit/Feature Triage
+
+| Area | Classification | Decision | Notes |
+| --- | --- | --- | --- |
+| AI provider/runtime fixes | manual | applied / partial | imported retained Anthropic, OpenAI, OpenAI Codex, OpenAI-compatible streaming/retry/context fixes; skipped new provider families and generated model churn |
+| TUI wrapping/cursor/capability fixes | manual | applied / partial | imported wrapping, tab/CJK, autocomplete cursor marker, and terminal hyperlink capability fixes; larger history/keyboard/overlay API work stayed out |
+| coding-agent runtime fixes | manual | applied / partial | imported auth permissions, reload queue mode sync, compaction prompt wording, SDK package fallback, and skill/user spacing; skipped trust-gating, extension API growth, broad package-manager churn, and absent migrations |
+
+### Path Mapping Decisions
+
+- Upstream AI paths under `packages/ai/src/**` map directly to the retained fork provider surface.
+- Upstream `packages/agent/src/**` changes were not needed in this batch; no agent-core package surface was widened.
+- Upstream coding-agent changes mapped only where matching local files and behavior already exist.
+- `19060743` was skipped as not applicable: the fork's `packages/coding-agent/src/migrations.ts` does not contain the upstream `models.json` config-value migration function.
+- Upstream package/version/release changes stayed out to preserve the minimized fork and avoid lockfile churn.
+
+### Integration Batches
+
+#### Batch 1: AI Providers
+
+- Included upstream behavior:
+  - OpenAI-compatible completions streaming: multiple interleaved tool-call deltas, finish-reason validation, and preserved OpenRouter cache accounting.
+  - OpenAI Responses shared conversion: developer-role compatibility, stable synthetic text IDs, and reasoning text deltas.
+  - OpenAI Codex Responses: configurable `maxRetries`, SSE header timeout, retry header delays, fallback instructions, and hyphenated `session-id` headers.
+  - Anthropic/simple options: explicit `maxTokens` only, thinking-budget adjustment without implicit caps, and Opus 4.7 temperature omission.
+  - Context overflow detection: additional OpenAI-compatible max-context wording.
+- Files touched:
+  - `packages/ai/src/providers/anthropic.ts`
+  - `packages/ai/src/providers/openai-codex-responses.ts`
+  - `packages/ai/src/providers/openai-completions.ts`
+  - `packages/ai/src/providers/openai-responses-shared.ts`
+  - `packages/ai/src/providers/simple-options.ts`
+  - `packages/ai/src/types.ts`
+  - `packages/ai/src/utils/abort-signals.ts`
+  - `packages/ai/src/utils/overflow.ts`
+  - `packages/ai/CHANGELOG.md`
+- Verification:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+
+#### Batch 2: TUI
+
+- Included upstream behavior:
+  - ANSI wrapping avoids spread-push stack overflow on large wrapped text.
+  - CJK text can wrap at grapheme boundaries and tabs count as three columns consistently.
+  - Editor keeps the hardware cursor marker active while autocomplete is open.
+  - Terminal hyperlink support is detected conservatively, with explicit Windows Terminal support and tmux probing.
+- Files touched:
+  - `packages/tui/src/components/editor.ts`
+  - `packages/tui/src/terminal-image.ts`
+  - `packages/tui/src/utils.ts`
+  - `packages/tui/CHANGELOG.md`
+- Verification:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+
+#### Batch 3: Coding Agent
+
+- Included upstream behavior:
+  - Auth file writes request `0600` permissions at creation/write time.
+  - Runtime reload re-syncs steering and follow-up queue modes from settings.
+  - Compaction summarization prompt no longer frames every transcript as a coding-assistant conversation.
+  - Embedded SDK startup tolerates missing package metadata.
+  - Skill invocation rendering inserts spacing before the follow-up user message.
+- Files touched:
+  - `packages/coding-agent/src/config.ts`
+  - `packages/coding-agent/src/core/agent-session.ts`
+  - `packages/coding-agent/src/core/auth-storage.ts`
+  - `packages/coding-agent/src/core/compaction/utils.ts`
+  - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`
+  - `packages/coding-agent/CHANGELOG.md`
+- Verification:
+  - `npm run check`: passed
+  - `./scripts/pi-test.sh --version`: passed (`0.52.12`)
+
+### Deferred Items
+
+| Commit/Area | Why deferred | Follow-up trigger |
+| --- | --- | --- |
+| generated models and version/release commits | catalog/release churn outside selected runtime fixes | dedicated model/release refresh |
+| new provider families / image APIs / broader compat maps | would widen this minimized fork's public surface | explicit provider expansion request |
+| docs/examples/tests/CI workflows | intentionally removed from fork | docs/test restoration request |
+| large package-manager/trust/extension API changes | broad behavior and surface growth beyond retained runtime fixes | dedicated extension/security-platform pass |
+| TUI large keyboard/history/overlay API work | higher-risk behavioral expansion; only selected matching fixes were ported | concrete bug report in those flows |
+| `19060743` models.json migration | target migration helper absent locally | revisit only if local migration layer grows to match upstream |
+
+### Verification Results
+
+- `git diff --check`: passed.
+- `npm run check`: passed after AI, TUI, and coding-agent batches.
+- `./scripts/pi-test.sh --version`: passed after AI, TUI, and coding-agent batches; output remained `0.52.12`.
+- Final `git status --short`: expected modified sync files plus new `packages/ai/src/utils/abort-signals.ts`; no unrelated worktree changes.
+- Final `npm run check`: passed.
+- Final `./scripts/pi-test.sh --version`: passed (`0.52.12`).
+- Final tmux interactive smoke: passed. Source launch rendered the TUI, footer showed `sync/upstream-20260610-v0791`, and typing `@` opened path autocomplete suggestions.
+
+### Final Summary
+
+- Imported retained runtime fixes from the `3b7448d1..v0.79.1` upstream window through upstream tag `v0.79.1`.
+- Preserved the minimized fork boundary: no removed packages/docs/examples/tests, no broad provider expansion, no lockfile churn, and no release/version updates.
+- Remaining work is final verification and any follow-up pass the fork explicitly wants for broader extension/security/trust surfaces.
+
+---
+
 ## Sync Cycle: 2026-04-08
 
 ### Metadata

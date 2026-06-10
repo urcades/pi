@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed CJK wrapping, tab width accounting, and large ANSI-wrapped text handling in terminal text layout.
+- Fixed editor hardware cursor marker placement while autocomplete is open.
+- Fixed OSC 8 hyperlink capability detection for Windows Terminal, tmux, screen, and unknown terminals.
+
 ## [0.52.12] - 2026-02-13
 
 ## [0.52.11] - 2026-02-13

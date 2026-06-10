@@ -184,11 +184,25 @@ export function getChangelogPath(): string {
 // App Config (from package.json piConfig)
 // =============================================================================
 
-const pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8"));
+interface PackageJson {
+	version?: string;
+	piConfig?: {
+		name?: string;
+		configDir?: string;
+	};
+}
+
+let pkg: PackageJson = {};
+try {
+	pkg = JSON.parse(readFileSync(getPackageJsonPath(), "utf-8")) as PackageJson;
+} catch (error: unknown) {
+	const err = error as NodeJS.ErrnoException;
+	if (err.code !== "ENOENT") throw error;
+}
 
 export const APP_NAME: string = pkg.piConfig?.name || "pi";
 export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
-export const VERSION: string = pkg.version;
+export const VERSION: string = pkg.version || "0.0.0";
 
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
 export const ENV_AGENT_DIR = `${APP_NAME.toUpperCase()}_CODING_AGENT_DIR`;

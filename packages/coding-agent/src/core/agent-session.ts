@@ -1422,6 +1422,11 @@ export class AgentSession {
 	// Queue Mode Management
 	// =========================================================================
 
+	private syncQueueModesFromSettings(): void {
+		this.agent.setSteeringMode(this.settingsManager.getSteeringMode());
+		this.agent.setFollowUpMode(this.settingsManager.getFollowUpMode());
+	}
+
 	/**
 	 * Set steering message mode.
 	 * Saves to settings.
@@ -2089,6 +2094,7 @@ export class AgentSession {
 		const previousFlagValues = this._extensionRunner?.getFlagValues();
 		await this._extensionRunner?.emit({ type: "session_shutdown" });
 		this.settingsManager.reload();
+		this.syncQueueModesFromSettings();
 		resetApiProviders();
 		await this._resourceLoader.reload();
 		this._buildRuntime({

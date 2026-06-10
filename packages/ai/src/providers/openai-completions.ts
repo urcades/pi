@@ -90,36 +90,71 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 			const openaiStream = await client.chat.completions.create(params, { signal: options?.signal });
 			stream.push({ type: "start", partial: output });
 
-			let currentBlock: TextContent | ThinkingContent | (ToolCall & { partialArgs?: string }) | null = null;
-			const blocks = output.content;
-			const blockIndex = () => blocks.length - 1;
-			const finishCurrentBlock = (block?: typeof currentBlock) => {
-				if (block) {
-					if (block.type === "text") {
-						stream.push({
-							type: "text_end",
-							contentIndex: blockIndex(),
-							content: block.text,
-							partial: output,
-						});
-					} else if (block.type === "thinking") {
-						stream.push({
-							type: "thinking_end",
-							contentIndex: blockIndex(),
-							content: block.thinking,
-							partial: output,
-						});
-					} else if (block.type === "toolCall") {
-						block.arguments = parseStreamingJson(block.partialArgs);
-						delete block.partialArgs;
-						stream.push({
-							type: "toolcall_end",
-							contentIndex: blockIndex(),
-							toolCall: block,
-							partial: output,
-						});
-					}
+			type StreamingToolCallBlock = ToolCall & { partialArgs?: string; streamIndex?: number };
+			type StreamingBlock = TextContent | ThinkingContent | StreamingToolCallBlock;
+			type StreamingToolCallDelta = NonNullable<ChatCompletionChunk.Choice.Delta["tool_calls"]>[number];
+
+			let textBlock: TextContent | null = null;
+			let thinkingBlock: ThinkingContent | null = null;
+			let hasFinishReason = false;
+			const toolCallBlocksByIndex = new Map<number, StreamingToolCallBlock>();
+			const toolCallBlocksById = new Map<string, StreamingToolCallBlock>();
+			const blocks = output.content as StreamingBlock[];
+			const getContentIndex = (block: StreamingBlock) => blocks.indexOf(block);
+			const finishBlock = (block: StreamingBlock) => {
+				const contentIndex = getContentIndex(block);
+				if (contentIndex === -1) return;
+				if (block.type === "text") {
+					stream.push({ type: "text_end", contentIndex, content: block.text, partial: output });
+				} else if (block.type === "thinking") {
+					stream.push({ type: "thinking_end", contentIndex, content: block.thinking, partial: output });
+				} else if (block.type === "toolCall") {
+					block.arguments = parseStreamingJson(block.partialArgs);
+					delete block.partialArgs;
+					delete block.streamIndex;
+					stream.push({ type: "toolcall_end", contentIndex, toolCall: block, partial: output });
 				}
+			};
+			const ensureTextBlock = () => {
+				if (!textBlock) {
+					textBlock = { type: "text", text: "" };
+					blocks.push(textBlock);
+					stream.push({ type: "text_start", contentIndex: getContentIndex(textBlock), partial: output });
+				}
+				return textBlock;
+			};
+			const ensureThinkingBlock = (thinkingSignature: string) => {
+				if (!thinkingBlock) {
+					thinkingBlock = { type: "thinking", thinking: "", thinkingSignature };
+					blocks.push(thinkingBlock);
+					stream.push({ type: "thinking_start", contentIndex: getContentIndex(thinkingBlock), partial: output });
+				}
+				return thinkingBlock;
+			};
+			const ensureToolCallBlock = (toolCall: StreamingToolCallDelta) => {
+				const streamIndex = typeof toolCall.index === "number" ? toolCall.index : undefined;
+				let block = streamIndex !== undefined ? toolCallBlocksByIndex.get(streamIndex) : undefined;
+				if (!block && toolCall.id) block = toolCallBlocksById.get(toolCall.id);
+				if (!block) {
+					block = {
+						type: "toolCall",
+						id: toolCall.id || "",
+						name: toolCall.function?.name || "",
+						arguments: {},
+						partialArgs: "",
+						streamIndex,
+					};
+					if (streamIndex !== undefined) toolCallBlocksByIndex.set(streamIndex, block);
+					if (toolCall.id) toolCallBlocksById.set(toolCall.id, block);
+					blocks.push(block);
+					stream.push({ type: "toolcall_start", contentIndex: getContentIndex(block), partial: output });
+				}
+				if (streamIndex !== undefined && block.streamIndex === undefined) {
+					block.streamIndex = streamIndex;
+					toolCallBlocksByIndex.set(streamIndex, block);
+				}
+				if (toolCall.id) toolCallBlocksById.set(toolCall.id, block);
+				return block;
 			};
 
 			for await (const chunk of openaiStream) {
@@ -139,6 +174,7 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 				if (choice.finish_reason) {
 					output.stopReason = mapStopReason(choice.finish_reason);
+					hasFinishReason = true;
 				}
 
 				if (choice.delta) {
@@ -147,22 +183,14 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 						choice.delta.content !== undefined &&
 						choice.delta.content.length > 0
 					) {
-						if (!currentBlock || currentBlock.type !== "text") {
-							finishCurrentBlock(currentBlock);
-							currentBlock = { type: "text", text: "" };
-							output.content.push(currentBlock);
-							stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
-						}
-
-						if (currentBlock.type === "text") {
-							currentBlock.text += choice.delta.content;
-							stream.push({
-								type: "text_delta",
-								contentIndex: blockIndex(),
-								delta: choice.delta.content,
-								partial: output,
-							});
-						}
+						const block = ensureTextBlock();
+						block.text += choice.delta.content;
+						stream.push({
+							type: "text_delta",
+							contentIndex: getContentIndex(block),
+							delta: choice.delta.content,
+							partial: output,
+						});
 					}
 
 					// Some endpoints return reasoning in reasoning_content (llama.cpp),
@@ -170,38 +198,24 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 					// Use the first non-empty reasoning field to avoid duplication
 					// (e.g., chutes.ai returns both reasoning_content and reasoning with same content)
 					const reasoningFields = ["reasoning_content", "reasoning", "reasoning_text"];
+					const deltaFields = choice.delta as Record<string, unknown>;
 					let foundReasoningField: string | null = null;
 					for (const field of reasoningFields) {
-						if (
-							(choice.delta as any)[field] !== null &&
-							(choice.delta as any)[field] !== undefined &&
-							(choice.delta as any)[field].length > 0
-						) {
-							if (!foundReasoningField) {
-								foundReasoningField = field;
-								break;
-							}
+						const value = deltaFields[field];
+						if (typeof value === "string" && value.length > 0) {
+							foundReasoningField = field;
+							break;
 						}
 					}
 
 					if (foundReasoningField) {
-						if (!currentBlock || currentBlock.type !== "thinking") {
-							finishCurrentBlock(currentBlock);
-							currentBlock = {
-								type: "thinking",
-								thinking: "",
-								thinkingSignature: foundReasoningField,
-							};
-							output.content.push(currentBlock);
-							stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
-						}
-
-						if (currentBlock.type === "thinking") {
-							const delta = (choice.delta as any)[foundReasoningField];
-							currentBlock.thinking += delta;
+						const delta = deltaFields[foundReasoningField];
+						if (typeof delta === "string" && delta.length > 0) {
+							const block = ensureThinkingBlock(foundReasoningField);
+							block.thinking += delta;
 							stream.push({
 								type: "thinking_delta",
-								contentIndex: blockIndex(),
+								contentIndex: getContentIndex(block),
 								delta,
 								partial: output,
 							});
@@ -210,39 +224,26 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 					if (choice?.delta?.tool_calls) {
 						for (const toolCall of choice.delta.tool_calls) {
-							if (
-								!currentBlock ||
-								currentBlock.type !== "toolCall" ||
-								(toolCall.id && currentBlock.id !== toolCall.id)
-							) {
-								finishCurrentBlock(currentBlock);
-								currentBlock = {
-									type: "toolCall",
-									id: toolCall.id || "",
-									name: toolCall.function?.name || "",
-									arguments: {},
-									partialArgs: "",
-								};
-								output.content.push(currentBlock);
-								stream.push({ type: "toolcall_start", contentIndex: blockIndex(), partial: output });
+							const block = ensureToolCallBlock(toolCall);
+							if (!block.id && toolCall.id) {
+								block.id = toolCall.id;
+								toolCallBlocksById.set(toolCall.id, block);
 							}
-
-							if (currentBlock.type === "toolCall") {
-								if (toolCall.id) currentBlock.id = toolCall.id;
-								if (toolCall.function?.name) currentBlock.name = toolCall.function.name;
-								let delta = "";
-								if (toolCall.function?.arguments) {
-									delta = toolCall.function.arguments;
-									currentBlock.partialArgs += toolCall.function.arguments;
-									currentBlock.arguments = parseStreamingJson(currentBlock.partialArgs);
-								}
-								stream.push({
-									type: "toolcall_delta",
-									contentIndex: blockIndex(),
-									delta,
-									partial: output,
-								});
+							if (!block.name && toolCall.function?.name) {
+								block.name = toolCall.function.name;
 							}
+							let delta = "";
+							if (toolCall.function?.arguments) {
+								delta = toolCall.function.arguments;
+								block.partialArgs = (block.partialArgs ?? "") + toolCall.function.arguments;
+								block.arguments = parseStreamingJson(block.partialArgs);
+							}
+							stream.push({
+								type: "toolcall_delta",
+								contentIndex: getContentIndex(block),
+								delta,
+								partial: output,
+							});
 						}
 					}
 
@@ -262,7 +263,9 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 				}
 			}
 
-			finishCurrentBlock(currentBlock);
+			for (const block of blocks) {
+				finishBlock(block);
+			}
 
 			if (options?.signal?.aborted) {
 				throw new Error("Request was aborted");
@@ -270,6 +273,9 @@ export const streamOpenAICompletions: StreamFunction<"openai-completions", OpenA
 
 			if (output.stopReason === "aborted" || output.stopReason === "error") {
 				throw new Error("An unknown error occurred");
+			}
+			if (!hasFinishReason) {
+				throw new Error("Stream ended without finish_reason");
 			}
 
 			stream.push({ type: "done", reason: output.stopReason, message: output });
@@ -642,10 +648,8 @@ function parseChunkUsage(
 	model: Model<"openai-completions">,
 ): AssistantMessage["usage"] {
 	const promptTokens = rawUsage.prompt_tokens || 0;
-	const reportedCachedTokens = rawUsage.prompt_tokens_details?.cached_tokens || 0;
+	const cacheReadTokens = rawUsage.prompt_tokens_details?.cached_tokens || 0;
 	const cacheWriteTokens = rawUsage.prompt_tokens_details?.cache_write_tokens || 0;
-	const cacheReadTokens =
-		cacheWriteTokens > 0 ? Math.max(0, reportedCachedTokens - cacheWriteTokens) : reportedCachedTokens;
 	const reasoningTokens = rawUsage.completion_tokens_details?.reasoning_tokens || 0;
 	const input = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
 	const outputTokens = (rawUsage.completion_tokens || 0) + reasoningTokens;

@@ -388,8 +388,9 @@ export class Editor implements Component, Focusable {
 		}
 
 		// Render each visible layout line
-		// Emit hardware cursor marker only when focused and not showing autocomplete
-		const emitCursorMarker = this.focused && !this.autocompleteState;
+		// Keep the hardware cursor marker active while autocomplete is open so
+		// terminal IME placement can still follow the editor cursor.
+		const emitCursorMarker = this.focused;
 
 		for (const layoutLine of visibleLines) {
 			let displayText = layoutLine.text;

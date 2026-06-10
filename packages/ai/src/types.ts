@@ -64,6 +64,10 @@ export interface StreamOptions {
 	 */
 	headers?: Record<string, string>;
 	/**
+	 * Maximum number of retries for providers that support request retries.
+	 */
+	maxRetries?: number;
+	/**
 	 * Maximum delay in milliseconds to wait for a retry when the server requests a long wait.
 	 * If the server's requested delay exceeds this value, the request fails immediately
 	 * with an error containing the requested delay, allowing higher-level retry logic
@@ -220,7 +224,8 @@ export interface OpenAICompletionsCompat {
 
 /** Compatibility settings for OpenAI Responses APIs. */
 export interface OpenAIResponsesCompat {
-	// Reserved for future use
+	/** Whether the provider supports the `developer` role (vs `system`). Default: true. */
+	supportsDeveloperRole?: boolean;
 }
 
 /**

@@ -10,6 +10,14 @@
 
 - Updated default provider model mapping to only include `anthropic`, `openai`, `openai-codex`, and `openrouter`.
 - Updated startup defaults and CLI/help provider guidance to match the reduced provider surface.
+- Embedded SDK startup now falls back to default branding if `package.json` is unavailable.
+
+### Fixed
+
+- Fixed auth file writes to request private file permissions at creation time.
+- Fixed `/reload` to reapply steering and follow-up queue modes from settings.
+- Fixed compaction summarization prompt wording so it does not frame the conversation as a coding-assistant transcript.
+- Fixed spacing between skill invocation display and the following user message.
 
 ### Removed
 
